@@ -1,37 +1,26 @@
-# Makefile minimaliste pour AFSTAT
-
-# Compilateur et options
 CC = gcc
 CFLAGS = -Wall -Wextra -g
 LEX = flex
 YACC = bison
-LEX_FILE = lexer.l
-YACC_FILE = parser.y
 TARGET = analyseur
 
-# Fichiers générés
-LEX_OUT = lex.yy.c
-YACC_OUT_C = parser.tab.c
-YACC_OUT_H = parser.tab.h
-
-.PHONY: all clean
-
-# Cible par défaut
 all: $(TARGET)
 
-# Génération de l'exécutable
-$(TARGET): $(YACC_OUT_C) $(LEX_OUT)
-	$(CC) $(CFLAGS) $(YACC_OUT_C) $(LEX_OUT) -lfl -o $(TARGET)
+parser.tab.c parser.tab.h: parser.y
+	$(YACC) -d parser.y
 
-# Génération des fichiers du parser
-$(YACC_OUT_C) $(YACC_OUT_H): $(YACC_FILE)
-	$(YACC) -d $(YACC_FILE)
+lex.yy.c: lexer.l parser.tab.h
+	$(LEX) lexer.l
 
-# Génération du lexer
-$(LEX_OUT): $(LEX_FILE)
-	$(LEX) $(LEX_FILE)
+ast.o: ast.c ast.h
+	$(CC) $(CFLAGS) -c ast.c
 
-# Nettoyage
+symbol_table.o: symbol_table.c symbol_table.h
+	$(CC) $(CFLAGS) -c symbol_table.c
+
+$(TARGET): parser.tab.c lex.yy.c ast.o symbol_table.o
+	$(CC) $(CFLAGS) parser.tab.c lex.yy.c ast.o symbol_table.o -lfl -o $(TARGET)
+
 clean:
-	rm -f $(TARGET) $(LEX_OUT) $(YACC_OUT_C) $(YACC_OUT_H)
+	rm -f *.o parser.tab.* lex.yy.c $(TARGET)
 

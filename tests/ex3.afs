@@ -1,0 +1,6 @@
+source patients "patients.csv";
+
+schema patient_schema { }
+
+associate patient_schema with doctors;  // doctors n’existe pas, devrait déclencher une erreur
+

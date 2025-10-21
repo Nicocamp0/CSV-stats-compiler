@@ -1,0 +1,12 @@
+source patients "patients.csv";
+source doctors "doctors.csv";
+
+schema patient_schema { }
+schema doctor_schema { }
+
+associate patient_schema with patients;
+associate doctor_schema with doctors;
+
+analyze patient_schema { }
+analyze doctor_schema { }
+

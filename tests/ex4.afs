@@ -1,0 +1,4 @@
+source patients "patients.csv";
+
+associate unknown_schema with patients;  // schema inconnu
+
