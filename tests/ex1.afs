@@ -1,0 +1,8 @@
+source patients "patients.csv";
+
+schema patient_schema {}
+
+associate patient_schema with patients;
+
+analyze patient_schema {}
+
