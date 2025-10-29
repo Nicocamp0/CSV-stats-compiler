@@ -1,0 +1,14 @@
+source patients "patients_data.csv";
+source records "medical_records.csv";
+
+schema patient_data {
+    patient_id integer;
+    age integer;
+    weight float;
+    height float;
+    gender string;
+    city string;
+}
+
+schema empty_schema {
+}

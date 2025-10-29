@@ -74,12 +74,23 @@
     #include <string.h>
 
     #include "parser.tab.h"
+    #include "symbol_table.h"
+    #include "ast.h"
+    
     extern int yylex(void);
     extern int yylineno;
     extern int yycolumn;
     void yyerror(const char *s);
+    
+    SymbolTable *global_symtab;
+    ASTNode *global_root = NULL;
 
-#line 83 "parser.tab.c"
+    int opt_tos = 0;
+    char *output_file = NULL;
+    extern ASTNode *global_root;
+    //Null fo schema car pas de fichier csv lier
+
+#line 94 "parser.tab.c"
 
 # ifndef YY_CAST
 #  ifdef __cplusplus
@@ -156,7 +167,9 @@ enum yysymbol_kind_t
   YYSYMBOL_associate_stmt = 46,            /* associate_stmt  */
   YYSYMBOL_analyze_stmt = 47,              /* analyze_stmt  */
   YYSYMBOL_schema_fields = 48,             /* schema_fields  */
-  YYSYMBOL_analyze_ops = 49                /* analyze_ops  */
+  YYSYMBOL_analyze_ops = 49,               /* analyze_ops  */
+  YYSYMBOL_field_decl = 50,                /* field_decl  */
+  YYSYMBOL_field_type = 51                 /* field_type  */
 };
 typedef enum yysymbol_kind_t yysymbol_kind_t;
 
@@ -484,16 +497,16 @@ union yyalloc
 /* YYFINAL -- State number of the termination state.  */
 #define YYFINAL  3
 /* YYLAST -- Last index in YYTABLE.  */
-#define YYLAST   18
+#define YYLAST   25
 
 /* YYNTOKENS -- Number of terminals.  */
 #define YYNTOKENS  40
 /* YYNNTS -- Number of nonterminals.  */
-#define YYNNTS  10
+#define YYNNTS  12
 /* YYNRULES -- Number of rules.  */
-#define YYNRULES  14
+#define YYNRULES  19
 /* YYNSTATES -- Number of states.  */
-#define YYNSTATES  28
+#define YYNSTATES  36
 
 /* YYMAXUTOK -- Last valid token kind.  */
 #define YYMAXUTOK   287
@@ -543,10 +556,10 @@ static const yytype_int8 yytranslate[] =
 
 #if YYDEBUG
 /* YYRLINE[YYN] -- Source line where rule number YYN was defined.  */
-static const yytype_int8 yyrline[] =
+static const yytype_uint8 yyrline[] =
 {
-       0,    39,    39,    42,    44,    48,    49,    50,    51,    57,
-      64,    71,    78,    86,    90
+       0,    51,    51,    64,    67,    80,    81,    82,    83,    89,
+     103,   120,   145,   155,   158,   172,   177,   183,   184,   185
 };
 #endif
 
@@ -569,7 +582,8 @@ static const char *const yytname[] =
   "KW_HISTOGRAM", "KW_SUMMARY", "FNUMBER", "INUMBER", "EQ", "NEQ", "LE",
   "GE", "LT", "GT", "'+'", "'-'", "'*'", "'/'", "';'", "'{'", "'}'",
   "$accept", "program", "stmts", "stmt", "source_stmt", "schema_stmt",
-  "associate_stmt", "analyze_stmt", "schema_fields", "analyze_ops", YY_NULLPTR
+  "associate_stmt", "analyze_stmt", "schema_fields", "analyze_ops",
+  "field_decl", "field_type", YY_NULLPTR
 };
 
 static const char *
@@ -579,7 +593,7 @@ yysymbol_name (yysymbol_kind_t yysymbol)
 }
 #endif
 
-#define YYPACT_NINF (-30)
+#define YYPACT_NINF (-29)
 
 #define yypact_value_is_default(Yyn) \
   ((Yyn) == YYPACT_NINF)
@@ -593,9 +607,10 @@ yysymbol_name (yysymbol_kind_t yysymbol)
    STATE-NUM.  */
 static const yytype_int8 yypact[] =
 {
-     -30,     3,    -3,   -30,    -8,    -7,    -6,    -5,   -30,   -30,
-     -30,   -30,   -30,    -4,   -29,     5,   -26,   -24,   -30,     1,
-     -30,   -30,   -23,   -22,   -21,   -30,   -30,   -30
+     -29,     3,    -3,   -29,    -5,    -4,    -2,    -1,   -29,   -29,
+     -29,   -29,   -29,     0,   -28,     7,   -23,   -21,     4,     5,
+     -29,   -29,   -10,   -20,     4,   -17,   -18,   -29,   -29,   -29,
+     -15,   -29,   -29,   -29,   -29,   -29
 };
 
 /* YYDEFACT[STATE-NUM] -- Default reduction number in state STATE-NUM.
@@ -605,19 +620,22 @@ static const yytype_int8 yydefact[] =
 {
        3,     0,     2,     1,     0,     0,     0,     0,     4,     5,
        6,     7,     8,     0,     0,     0,     0,     0,    13,     0,
-      14,     9,     0,     0,     0,    10,    11,    12
+      15,     9,     0,     0,    13,     0,     0,    17,    18,    19,
+       0,    10,    14,    11,    12,    16
 };
 
 /* YYPGOTO[NTERM-NUM].  */
 static const yytype_int8 yypgoto[] =
 {
-     -30,   -30,   -30,   -30,   -30,   -30,   -30,   -30,   -30,   -30
+     -29,   -29,   -29,   -29,   -29,   -29,   -29,   -29,     1,   -29,
+     -29,   -29
 };
 
 /* YYDEFGOTO[NTERM-NUM].  */
 static const yytype_int8 yydefgoto[] =
 {
-       0,     1,     2,     8,     9,    10,    11,    12,    22,    24
+       0,     1,     2,     8,     9,    10,    11,    12,    23,    26,
+      24,    30
 };
 
 /* YYTABLE[YYPACT[STATE-NUM]] -- What to do in state STATE-NUM.  If
@@ -625,14 +643,16 @@ static const yytype_int8 yydefgoto[] =
    number is the opposite.  If YYTABLE_NINF, syntax error.  */
 static const yytype_int8 yytable[] =
 {
-       4,     5,     6,     3,     7,    13,    14,    15,    16,    18,
-      17,    19,    20,    21,    23,    26,    25,     0,    27
+       4,     5,     6,     3,     7,    27,    28,    29,    13,    14,
+      18,    15,    16,    19,    17,    20,    21,    22,    25,    31,
+      33,    34,    35,     0,     0,    32
 };
 
 static const yytype_int8 yycheck[] =
 {
-       3,     4,     5,     0,     7,    13,    13,    13,    13,    38,
-      14,     6,    38,    37,    13,    37,    39,    -1,    39
+       3,     4,     5,     0,     7,    15,    16,    17,    13,    13,
+      38,    13,    13,     6,    14,    38,    37,    13,    13,    39,
+      37,    39,    37,    -1,    -1,    24
 };
 
 /* YYSTOS[STATE-NUM] -- The symbol kind of the accessing symbol of
@@ -641,21 +661,22 @@ static const yytype_int8 yystos[] =
 {
        0,    41,    42,     0,     3,     4,     5,     7,    43,    44,
       45,    46,    47,    13,    13,    13,    13,    14,    38,     6,
-      38,    37,    48,    13,    49,    39,    37,    39
+      38,    37,    13,    48,    50,    13,    49,    15,    16,    17,
+      51,    39,    48,    37,    39,    37
 };
 
 /* YYR1[RULE-NUM] -- Symbol kind of the left-hand side of rule RULE-NUM.  */
 static const yytype_int8 yyr1[] =
 {
        0,    40,    41,    42,    42,    43,    43,    43,    43,    44,
-      45,    46,    47,    48,    49
+      45,    46,    47,    48,    48,    49,    50,    51,    51,    51
 };
 
 /* YYR2[RULE-NUM] -- Number of symbols on the right-hand side of rule RULE-NUM.  */
 static const yytype_int8 yyr2[] =
 {
        0,     2,     1,     0,     2,     1,     1,     1,     1,     4,
-       5,     5,     5,     0,     0
+       5,     5,     5,     0,     2,     0,     3,     1,     1,     1
 };
 
 
@@ -1118,40 +1139,159 @@ yyreduce:
   YY_REDUCE_PRINT (yyn);
   switch (yyn)
     {
-  case 9: /* source_stmt: SOURCE IDENT STRING_LITERAL ';'  */
-#line 58 "parser.y"
+  case 2: /* program: stmts  */
+#line 52 "parser.y"
     {
-        printf("[PARSE] Source %s -> %s\n", (yyvsp[-2].str), (yyvsp[-1].str));
+        ASTNode *program_node = ast_create(AST_PROGRAM, NULL, NULL, NULL); 
+        if ((yyvsp[0].node) != NULL) {
+            ast_add_child(program_node, (yyvsp[0].node));
+        }
+        global_root = program_node; 
+        (yyval.node) = program_node; 
     }
-#line 1127 "parser.tab.c"
+#line 1153 "parser.tab.c"
+    break;
+
+  case 3: /* stmts: %empty  */
+#line 64 "parser.y"
+    {
+        (yyval.node) = NULL;
+    }
+#line 1161 "parser.tab.c"
+    break;
+
+  case 4: /* stmts: stmts stmt  */
+#line 68 "parser.y"
+        {
+            if ((yyvsp[-1].node) == NULL) {
+            (yyval.node) = (yyvsp[0].node); 
+        } else {
+            ast_add_child((yyvsp[-1].node), (yyvsp[0].node));
+            (yyval.node) = (yyvsp[-1].node); 
+        }
+    }
+#line 1174 "parser.tab.c"
+    break;
+
+  case 9: /* source_stmt: SOURCE IDENT STRING_LITERAL ';'  */
+#line 90 "parser.y"
+                                                {
+                                                    //Vérifie que le symbole n'a pas été déjà défini 
+                                                    if (symtab_find(global_symtab, (yyvsp[-2].str)) != NULL) {
+                                                        fprintf(stderr, "[ERREUR SÉMANTIQUE] L'identifiant '%s' est déjà défini. Redéfinition de source.\n", (yyvsp[-2].str));
+                                                        YYERROR; 
+                                                    }
+                                                    symtab_add(global_symtab, (yyvsp[-2].str), "source");
+                                                    (yyval.node) = ast_create(AST_SOURCE, (yyvsp[-2].str), (yyvsp[-1].str),NULL);
+                                                    printf("[PARSE] Source %s -> %s\n", (yyvsp[-2].str), (yyvsp[-1].str));
+                                                }
+#line 1189 "parser.tab.c"
     break;
 
   case 10: /* schema_stmt: SCHEMA IDENT '{' schema_fields '}'  */
-#line 65 "parser.y"
-    {
-        printf("[PARSE] Schema %s {...}\n", (yyvsp[-3].str));
-    }
-#line 1135 "parser.tab.c"
+#line 104 "parser.y"
+                                                {
+                                                    //Vérifie que le symbole n'a pas déjà un schema défini 
+                                                    if (symtab_find(global_symtab, (yyvsp[-3].str)) != NULL) {
+                                                        fprintf(stderr, "[ERREUR SÉMANTIQUE] L'identifiant '%s' est déjà défini.\n", (yyvsp[-3].str));
+                                                        YYERROR; 
+                                                    }
+                                                    symtab_add(global_symtab, (yyvsp[-3].str), "schema");
+                                                    (yyval.node) = ast_create(AST_SCHEMA, (yyvsp[-3].str), NULL,NULL);
+                                                    if ((yyvsp[-1].node) != NULL) {
+                                                        ast_add_child((yyval.node), (yyvsp[-1].node)); // $4 est la racine de la liste d'enfants
+                                                    }
+                                                    printf("[PARSE] Schema %s {...}\n", (yyvsp[-3].str));
+                                                }
+#line 1207 "parser.tab.c"
     break;
 
   case 11: /* associate_stmt: ASSOCIATE IDENT WITH IDENT ';'  */
-#line 72 "parser.y"
-    {
-        printf("[PARSE] Associate %s with %s\n", (yyvsp[-3].str), (yyvsp[-1].str));
-    }
-#line 1143 "parser.tab.c"
+#line 121 "parser.y"
+                                                {
+                                                    // Le premier IDENT ($2) est le nom du schéma
+                                                    // Le second IDENT ($4) est le nom de la source
+
+                                                    printf("[PARSE] Associate %s with %s\n", (yyvsp[-3].str), (yyvsp[-1].str));
+
+                                                    Symbol *schema_sym = symtab_find(global_symtab, (yyvsp[-3].str));
+                                                    Symbol *source_sym = symtab_find(global_symtab, (yyvsp[-1].str));
+
+                                                    if (source_sym == NULL || (strcmp(source_sym->type, "source") != 0 && strcmp(source_sym->type, "join") != 0)) {
+                                                        fprintf(stderr, "[ERREUR SÉMANTIQUE] Source non définie ou type incorrect: %s\n", (yyvsp[-1].str));
+                                                        YYERROR;
+                                                    }
+
+                                                    if (schema_sym == NULL || strcmp(schema_sym->type, "schema") != 0) {
+                                                        fprintf(stderr, "[ERREUR SÉMANTIQUE] Schéma non défini ou type incorrect: %s\n", (yyvsp[-3].str));
+                                                        YYERROR;
+                                                    }
+
+                                                    (yyval.node) = ast_create(AST_ASSOCIATE, (yyvsp[-3].str), (yyvsp[-1].str),NULL);
+                                                }
+#line 1233 "parser.tab.c"
     break;
 
   case 12: /* analyze_stmt: ANALYZE IDENT '{' analyze_ops '}'  */
-#line 79 "parser.y"
-    {
-        printf("[PARSE] Analyze %s {...}\n", (yyvsp[-3].str));
-    }
-#line 1151 "parser.tab.c"
+#line 146 "parser.y"
+                                                    {
+                                                        printf("[PARSE] Analyze %s {...}\n", (yyvsp[-3].str));
+                                                    }
+#line 1241 "parser.tab.c"
+    break;
+
+  case 13: /* schema_fields: %empty  */
+#line 155 "parser.y"
+                                                    {
+                                                        (yyval.node) = NULL;
+                                                    }
+#line 1249 "parser.tab.c"
+    break;
+
+  case 14: /* schema_fields: field_decl schema_fields  */
+#line 159 "parser.y"
+                                                    {
+                                                        // $1 est le nœud AST_FIELD (la colonne)
+                                                        // $2 est le résultat (liste) de l'appel récursif suivant
+                                                        
+                                                        if ((yyvsp[0].node) != NULL) {
+                                                            ast_add_child((yyvsp[0].node), (yyvsp[-1].node));
+                                                            (yyval.node) = (yyvsp[0].node);
+                                                        } else {
+                                                            (yyval.node) = (yyvsp[-1].node);
+                                                        }
+                                                    }
+#line 1265 "parser.tab.c"
+    break;
+
+  case 16: /* field_decl: IDENT field_type ';'  */
+#line 178 "parser.y"
+                                                    {
+                                                        (yyval.node) = ast_create(AST_FIELD, (yyvsp[-2].str), NULL,(yyvsp[-1].str));
+                                                    }
+#line 1273 "parser.tab.c"
+    break;
+
+  case 17: /* field_type: TYPE_INTEGER  */
+#line 183 "parser.y"
+                     { (yyval.str) = strdup("integer"); }
+#line 1279 "parser.tab.c"
+    break;
+
+  case 18: /* field_type: TYPE_FLOAT  */
+#line 184 "parser.y"
+                     { (yyval.str) = strdup("float"); }
+#line 1285 "parser.tab.c"
+    break;
+
+  case 19: /* field_type: TYPE_STRING  */
+#line 185 "parser.y"
+                     { (yyval.str) = strdup("string"); }
+#line 1291 "parser.tab.c"
     break;
 
 
-#line 1155 "parser.tab.c"
+#line 1295 "parser.tab.c"
 
       default: break;
     }
@@ -1344,7 +1484,7 @@ yyreturnlab:
   return yyresult;
 }
 
-#line 94 "parser.y"
+#line 187 "parser.y"
 
 
 /* ======== SECTION CODE C (bas du fichier) ======== */
@@ -1354,10 +1494,20 @@ void yyerror(const char *s) {
 }
 
 int main(int argc, char **argv) {
-    if (yyparse() == 0)
+    global_symtab = symtab_create();
+    if (yyparse() == 0){
         printf("Analyse syntaxique réussie\n");
-    else
-        printf("Échec de l'analyse syntaxique\n");
+        printf("\n=== Arbre Syntaxique Abstrait ===\n");
+        if (global_root) {
+            ast_print(global_root, 0); // Appeler ast_print sur la racine
+        } else {
+            printf("(AST Vide)\\n");
+        }
+        symtab_free(global_symtab);
+    }else{
+        symtab_free(global_symtab);
+        return 1;
+    }
     return 0;
 }
 
