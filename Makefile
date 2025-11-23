@@ -1,16 +1,13 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -g
-LEX = flex
-YACC = bison
-TARGET = analyseur
 
-all: $(TARGET)
+all: analyseur
 
 parser.tab.c parser.tab.h: parser.y
-	$(YACC) -d parser.y
+	bison -d parser.y
 
 lex.yy.c: lexer.l parser.tab.h
-	$(LEX) lexer.l
+	flex lexer.l
 
 ast.o: ast.c ast.h
 	$(CC) $(CFLAGS) -c ast.c
@@ -18,9 +15,9 @@ ast.o: ast.c ast.h
 symbol_table.o: symbol_table.c symbol_table.h
 	$(CC) $(CFLAGS) -c symbol_table.c
 
-$(TARGET): parser.tab.c lex.yy.c ast.o symbol_table.o
-	$(CC) $(CFLAGS) parser.tab.c lex.yy.c ast.o symbol_table.o -lfl -o $(TARGET)
+analyseur: parser.tab.c lex.yy.c ast.o symbol_table.o
+	$(CC) $(CFLAGS) parser.tab.c lex.yy.c ast.o symbol_table.o -lfl -o analyseur
 
 clean:
-	rm -f *.o parser.tab.* lex.yy.c $(TARGET)
+	rm -f analyseur parser.tab.c parser.tab.h lex.yy.c *.o
 

@@ -1,45 +1,62 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include "ast.h"
 
-ASTNode *ast_create(ASTType type, const char *name, const char *arg, const char *col_type) {
-    ASTNode *node = (ASTNode *)malloc(sizeof(ASTNode));
-    node->type = type;
-    node->name = name ? strdup(name) : NULL;
-    node->arg = arg ? strdup(arg) : NULL;
-    node->column = col_type ? strdup(col_type) : NULL;
-    node->children = NULL;
-    node->n_children = 0;
-    return node;
+ASTNode *ast_create(NodeType type, const char *text, ASTNode *left, ASTNode *right) {
+    ASTNode *n = malloc(sizeof(ASTNode));
+    if (!n) {
+        perror("malloc");
+        exit(EXIT_FAILURE);
+    }
+    n->type  = type;
+    n->left  = left;
+    n->right = right;
+    n->next  = NULL;
+    n->text  = text ? strdup(text) : NULL;
+    return n;
 }
 
-void ast_add_child(ASTNode *parent, ASTNode *child) {
-    parent->children = (ASTNode **)realloc(parent->children,
-        sizeof(ASTNode*) * (parent->n_children + 1));
-    parent->children[parent->n_children] = child;
-    parent->n_children++;
+ASTNode *ast_cons(ASTNode *first, ASTNode *rest) {
+    if (!first) return rest;
+    first->next = rest;
+    return first;
+}
+
+static void print_indent(int indent) {
+    for (int i = 0; i < indent; i++) printf("  ");
+}
+
+static const char *node_type_name(NodeType t) {
+    switch (t) {
+        case AST_PROGRAM:     return "Program";
+        case AST_SOURCE:      return "Source";
+        case AST_SCHEMA:      return "Schema";
+        case AST_FIELD:       return "Field";
+        case AST_FIELD_LIST:  return "FieldList";
+        case AST_ASSOCIATE:   return "Associate";
+        case AST_COMPUTE:     return "Compute";
+        case AST_JOIN:        return "Join";
+        case AST_FILTER:      return "Filter";
+        case AST_ANALYZE:     return "Analyze";
+        case AST_ANALYZE_OP:  return "AnalyzeOp";
+        case AST_EXPRESSION:  return "Expression";
+        case AST_CONDITION:   return "Condition";
+        default:              return "Unknown";
+    }
 }
 
 void ast_print(ASTNode *node, int indent) {
     if (!node) return;
-    for(int i=0;i<indent;i++) printf("  ");
-    switch(node->type) {
-        case AST_SOURCE:   printf("Source: %s -> %s\n", node->name, node->arg); break;
-        case AST_SCHEMA:   printf("Schema: %s\n", node->name); break;
-        case AST_ASSOCIATE:printf("Associate: %s\n", node->name); break;
-        case AST_ANALYZE:  printf("Analyze: %s\n", node->name); break;
-        case AST_FIELD: printf("Field: %s (%s)\n", node->name, node->column); break;
-    }
-    for(int i=0;i<node->n_children;i++)
-        ast_print(node->children[i], indent+1);
-}
 
-void ast_free(ASTNode *node) {
-    if (!node) return;
-    if (node->name) free(node->name);
-    if (node->arg) free(node->arg);
-    if (node->column) free(node->column);
-    for(int i=0;i<node->n_children;i++)
-        ast_free(node->children[i]);
-    free(node->children);
-    free(node);
+    print_indent(indent);
+    printf("%s", node_type_name(node->type));
+    if (node->text)
+        printf(" [%s]", node->text);
+    printf("\n");
+
+    if (node->left)  ast_print(node->left,  indent + 1);
+    if (node->right) ast_print(node->right, indent + 1);
+    if (node->next)  ast_print(node->next,  indent);
 }
 

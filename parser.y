@@ -1,211 +1,316 @@
 %{
-    #include <stdio.h>
-    #include <stdlib.h>
-    #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include "ast.h"
 
-    #include "parser.tab.h"
-    #include "symbol_table.h"
-    #include "ast.h"
-    
-    extern int yylex(void);
-    extern int yylineno;
-    extern int yycolumn;
-    void yyerror(const char *s);
-    
-    SymbolTable *global_symtab;
-    ASTNode *global_root = NULL;
+extern int yylex(void);
+extern int yylineno;
+extern int yycolumn;
 
-    int opt_tos = 0;
-    char *output_file = NULL;
-    extern ASTNode *global_root;
-    //Null fo schema car pas de fichier csv lier
+void yyerror(const char *s);
+
+ASTNode *root = NULL;
 %}
 
 %union {
     int ival;
     double fval;
     char *str;
-    struct ASTNode *node;
+    ASTNode *node;
 }
 
-%token SOURCE SCHEMA ASSOCIATE WITH ANALYZE COMPUTE
+/* TOKENS */
+%token SOURCE SCHEMA ASSOCIATE WITH COMPUTE ANALYZE
 %token JOIN INNER FILTER WHERE
-%token <str> IDENT STRING_LITERAL
 %token TYPE_INTEGER TYPE_FLOAT TYPE_STRING
 %token KW_MEAN KW_MEDIAN KW_STDDEV KW_MIN KW_MAX KW_HISTOGRAM KW_SUMMARY
-%token FNUMBER INUMBER
-%token EQ NEQ LE GE LT GT
+%token EQ NEQ LT GT LE GE
+
+%token <str> IDENT STRING_LITERAL
+%token <ival> INUMBER
+%token <fval> FNUMBER
+
 %left '+' '-'
 %left '*' '/'
 
-%type <node> program stmts stmt source_stmt schema_stmt associate_stmt analyze_stmt
-%type <node> schema_fields field_decl  
-%type <str> field_type
-%start program
+%type <node> program stmt_list stmt
+%type <node> source_stmt schema_stmt associate_stmt compute_stmt join_stmt filter_stmt analyze_stmt
+%type <node> field_list field
+%type <node> analyze_ops analyze_op
+%type <node> expression condition
+%type <node> column_ref   /* <<< nouveau non-terminal pour src.col */
+
 %%
 
-/* ======== SECTION GRAMMAIRE ======== */
-
-
 program:
-      stmts
+      stmt_list
     {
-        ASTNode *program_node = ast_create(AST_PROGRAM, NULL, NULL, NULL); 
-        if ($1 != NULL) {
-            ast_add_child(program_node, $1);
-        }
-        global_root = program_node; 
-        $$ = program_node; 
+        root = ast_create(AST_PROGRAM, NULL, $1, NULL);
     }
-    ;
+;
 
-stmts:
-      /* vide */
+stmt_list:
+      stmt_list stmt
+    {
+        $$ = ast_cons($1, $2);
+    }
+    | stmt
+    {
+        $$ = $1;
+    }
+    | /* vide */
     {
         $$ = NULL;
     }
-    | stmts stmt
-        {
-            if ($1 == NULL) {
-            $$ = $2; 
-        } else {
-            ast_add_child($1, $2);
-            $$ = $1; 
-        }
-    }
-    
-    ;
+;
 
 stmt:
       source_stmt
     | schema_stmt
     | associate_stmt
+    | compute_stmt
+    | join_stmt
+    | filter_stmt
     | analyze_stmt
-    ;
+;
 
-/* --- Déclarations de base --- */
-
+/* source nom "fichier.csv"; */
 source_stmt:
-    SOURCE IDENT STRING_LITERAL ';'             
-                                                {
-                                                    //Vérifie que le symbole n'a pas été déjà défini 
-                                                    if (symtab_find(global_symtab, $2) != NULL) {
-                                                        fprintf(stderr, "[ERREUR SÉMANTIQUE] L'identifiant '%s' est déjà défini. Redéfinition de source.\n", $2);
-                                                        YYERROR; 
-                                                    }
-                                                    symtab_add(global_symtab, $2, "source");
-                                                    $$ = ast_create(AST_SOURCE, $2, $3,NULL);
-                                                    printf("[PARSE] Source %s -> %s\n", $2, $3);
-                                                }
-    ;
+    SOURCE IDENT STRING_LITERAL ';'
+    {
+        ASTNode *file = ast_create(AST_EXPRESSION, $3, NULL, NULL);
+        $$ = ast_create(AST_SOURCE, $2, file, NULL);
+    }
+;
 
+/* schema nom { champs } */
 schema_stmt:
-    SCHEMA IDENT '{' schema_fields '}'          
-                                                {
-                                                    //Vérifie que le symbole n'a pas déjà un schema défini 
-                                                    if (symtab_find(global_symtab, $2) != NULL) {
-                                                        fprintf(stderr, "[ERREUR SÉMANTIQUE] L'identifiant '%s' est déjà défini.\n", $2);
-                                                        YYERROR; 
-                                                    }
-                                                    symtab_add(global_symtab, $2, "schema");
-                                                    $$ = ast_create(AST_SCHEMA, $2, NULL,NULL);
-                                                    if ($4 != NULL) {
-                                                        ast_add_child($$, $4); // $4 est la racine de la liste d'enfants
-                                                    }
-                                                    printf("[PARSE] Schema %s {...}\n", $2);
-                                                }
-    ;
+    SCHEMA IDENT '{' field_list '}'
+    {
+        $$ = ast_create(AST_SCHEMA, $2, $4, NULL);
+    }
+;
 
+/* liste de champs */
+field_list:
+      field_list field    { $$ = ast_cons($1, $2); }
+    | field               { $$ = $1; }
+    | /* vide */          { $$ = NULL; }
+;
+
+/* champ : nom type; */
+field:
+      IDENT TYPE_INTEGER ';'
+    {
+        ASTNode *t = ast_create(AST_FIELD, "integer", NULL, NULL);
+        $$ = ast_create(AST_FIELD, $1, t, NULL);
+    }
+    | IDENT TYPE_FLOAT ';'
+    {
+        ASTNode *t = ast_create(AST_FIELD, "float", NULL, NULL);
+        $$ = ast_create(AST_FIELD, $1, t, NULL);
+    }
+    | IDENT TYPE_STRING ';'
+    {
+        ASTNode *t = ast_create(AST_FIELD, "string", NULL, NULL);
+        $$ = ast_create(AST_FIELD, $1, t, NULL);
+    }
+;
+
+/* associate schema with source; */
 associate_stmt:
-    ASSOCIATE IDENT WITH IDENT ';'              
-                                                {
-                                                    // Le premier IDENT ($2) est le nom du schéma
-                                                    // Le second IDENT ($4) est le nom de la source
+    ASSOCIATE IDENT WITH IDENT ';'
+    {
+        ASTNode *src = ast_create(AST_EXPRESSION, $4, NULL, NULL);
+        $$ = ast_create(AST_ASSOCIATE, $2, src, NULL);
+    }
+;
 
-                                                    printf("[PARSE] Associate %s with %s\n", $2, $4);
+/* compute nouvelle_colonne = expression; */
+compute_stmt:
+    COMPUTE IDENT '=' expression ';'
+    {
+        $$ = ast_create(AST_COMPUTE, $2, $4, NULL);
+    }
+;
 
-                                                    Symbol *schema_sym = symtab_find(global_symtab, $2);
-                                                    Symbol *source_sym = symtab_find(global_symtab, $4);
+/* Référence de colonne : source.colonne */
+column_ref:
+    IDENT '.' IDENT
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "%s.%s", $1, $3);
+        $$ = ast_create(AST_EXPRESSION, buf, NULL, NULL);
+    }
+;
 
-                                                    if (source_sym == NULL || (strcmp(source_sym->type, "source") != 0 && strcmp(source_sym->type, "join") != 0)) {
-                                                        fprintf(stderr, "[ERREUR SÉMANTIQUE] Source non définie ou type incorrect: %s\n", $4);
-                                                        YYERROR;
-                                                    }
+/* expressions (arith, ident, src.col, string, …) */
+expression:
+      INUMBER
+    {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%d", $1);
+        $$ = ast_create(AST_EXPRESSION, buf, NULL, NULL);
+    }
+    | FNUMBER
+    {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%g", $1);
+        $$ = ast_create(AST_EXPRESSION, buf, NULL, NULL);
+    }
+    | STRING_LITERAL
+    {
+        $$ = ast_create(AST_EXPRESSION, $1, NULL, NULL);
+    }
+    | IDENT
+    {
+        $$ = ast_create(AST_EXPRESSION, $1, NULL, NULL);
+    }
+    | column_ref   /* <<< on réutilise la règle dédiée */
+    {
+        $$ = $1;
+    }
+    | '(' expression ')'
+    {
+        $$ = $2;
+    }
+    | expression '+' expression
+    {
+        $$ = ast_create(AST_EXPRESSION, "+", $1, $3);
+    }
+    | expression '-' expression
+    {
+        $$ = ast_create(AST_EXPRESSION, "-", $1, $3);
+    }
+    | expression '*' expression
+    {
+        $$ = ast_create(AST_EXPRESSION, "*", $1, $3);
+    }
+    | expression '/' expression
+    {
+        $$ = ast_create(AST_EXPRESSION, "/", $1, $3);
+    }
+;
 
-                                                    if (schema_sym == NULL || strcmp(schema_sym->type, "schema") != 0) {
-                                                        fprintf(stderr, "[ERREUR SÉMANTIQUE] Schéma non défini ou type incorrect: %s\n", $2);
-                                                        YYERROR;
-                                                    }
+/* join nom = s1.c1 inner join s2.c2; */
+join_stmt:
+    JOIN IDENT '=' column_ref INNER JOIN column_ref ';'
+    {
+        $$ = ast_create(AST_JOIN, $2, $4, $7);
+    }
 
-                                                    $$ = ast_create(AST_ASSOCIATE, $2, $4,NULL);
-                                                }
-    ;
+;
 
+/* filter nom = src where condition; */
+filter_stmt:
+    FILTER IDENT '=' IDENT WHERE condition ';'
+    {
+        ASTNode *src = ast_create(AST_EXPRESSION, $4, NULL, NULL);
+        $$ = ast_create(AST_FILTER, $2, src, $6);
+    }
+;
+
+/* condition: expr op expr */
+condition:
+      expression EQ  expression
+    {
+        $$ = ast_create(AST_CONDITION, "==", $1, $3);
+    }
+    | expression NEQ expression
+    {
+        $$ = ast_create(AST_CONDITION, "!=", $1, $3);
+    }
+    | expression LT  expression
+    {
+        $$ = ast_create(AST_CONDITION, "<", $1, $3);
+    }
+    | expression GT  expression
+    {
+        $$ = ast_create(AST_CONDITION, ">", $1, $3);
+    }
+    | expression LE  expression
+    {
+        $$ = ast_create(AST_CONDITION, "<=", $1, $3);
+    }
+    | expression GE  expression
+    {
+        $$ = ast_create(AST_CONDITION, ">=", $1, $3);
+    }
+;
+
+/* analyze schema_name { opérations } */
 analyze_stmt:
-    ANALYZE IDENT '{' analyze_ops '}'
-                                                    {
-                                                        printf("[PARSE] Analyze %s {...}\n", $2);
-                                                    }
-    ;
-
-/* --- Règles simplifiées pour les champs et analyses --- */
-
-schema_fields:
-    /* vide */
-                                                    {
-                                                        $$ = NULL;
-                                                    }
-    | field_decl schema_fields 
-                                                    {
-                                                        // $1 est le nœud AST_FIELD (la colonne)
-                                                        // $2 est le résultat (liste) de l'appel récursif suivant
-                                                        
-                                                        if ($2 != NULL) {
-                                                            ast_add_child($2, $1);
-                                                            $$ = $2;
-                                                        } else {
-                                                            $$ = $1;
-                                                        }
-                                                    }
-    ;    
+    ANALYZE IDENT '{' analyze_ops '}' 
+    {
+        $$ = ast_create(AST_ANALYZE, $2, $4, NULL);
+    }
+;
 
 analyze_ops:
-      /* à compléter plus tard */
-    ;
+      analyze_ops analyze_op    { $$ = ast_cons($1, $2); }
+    | analyze_op                { $$ = $1; }
+    | /* vide */                { $$ = NULL; }
+;
 
-field_decl:
-    IDENT field_type ';' 
-                                                    {
-                                                        $$ = ast_create(AST_FIELD, $1, NULL,$2);
-                                                    }
-    ;
-field_type:
-      TYPE_INTEGER   { $$ = strdup("integer"); }
-    | TYPE_FLOAT     { $$ = strdup("float"); }
-    | TYPE_STRING    { $$ = strdup("string"); }
-    ;
+/* mean age;  summary weight; etc. */
+analyze_op:
+      KW_MEAN IDENT ';'
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "mean %s", $2);
+        $$ = ast_create(AST_ANALYZE_OP, buf, NULL, NULL);
+    }
+    | KW_MEDIAN IDENT ';'
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "median %s", $2);
+        $$ = ast_create(AST_ANALYZE_OP, buf, NULL, NULL);
+    }
+    | KW_STDDEV IDENT ';'
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "std_dev %s", $2);
+        $$ = ast_create(AST_ANALYZE_OP, buf, NULL, NULL);
+    }
+    | KW_MIN IDENT ';'
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "min %s", $2);
+        $$ = ast_create(AST_ANALYZE_OP, buf, NULL, NULL);
+    }
+    | KW_MAX IDENT ';'
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "max %s", $2);
+        $$ = ast_create(AST_ANALYZE_OP, buf, NULL, NULL);
+    }
+    | KW_HISTOGRAM IDENT ';'
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "histogram %s", $2);
+        $$ = ast_create(AST_ANALYZE_OP, buf, NULL, NULL);
+    }
+    | KW_SUMMARY IDENT ';'
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "summary %s", $2);
+        $$ = ast_create(AST_ANALYZE_OP, buf, NULL, NULL);
+    }
+;
+
 %%
 
-/* ======== SECTION CODE C (bas du fichier) ======== */
-
 void yyerror(const char *s) {
-    fprintf(stderr, "[ERREUR SYNTAXE] %s (ligne %d, col %d)\n", s, yylineno, yycolumn);
+    fprintf(stderr, "[ERREUR SYNTAXE] %s (ligne %d)\n", s, yylineno);
 }
 
-int main(int argc, char **argv) {
-    global_symtab = symtab_create();
-    if (yyparse() == 0){
+int main(void) {
+    if (yyparse() == 0) {
         printf("Analyse syntaxique réussie\n");
-        printf("\n=== Arbre Syntaxique Abstrait ===\n");
-        if (global_root) {
-            ast_print(global_root, 0); // Appeler ast_print sur la racine
-        } else {
-            printf("(AST Vide)\\n");
-        }
-        symtab_free(global_symtab);
-    }else{
-        symtab_free(global_symtab);
-        return 1;
+        printf("=== AST ===\n");
+        ast_print(root, 0);
+    } else {
+        printf("Échec de l'analyse syntaxique\n");
     }
     return 0;
 }

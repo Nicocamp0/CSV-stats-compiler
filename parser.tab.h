@@ -58,32 +58,32 @@ extern int yydebug;
     SCHEMA = 259,                  /* SCHEMA  */
     ASSOCIATE = 260,               /* ASSOCIATE  */
     WITH = 261,                    /* WITH  */
-    ANALYZE = 262,                 /* ANALYZE  */
-    COMPUTE = 263,                 /* COMPUTE  */
+    COMPUTE = 262,                 /* COMPUTE  */
+    ANALYZE = 263,                 /* ANALYZE  */
     JOIN = 264,                    /* JOIN  */
     INNER = 265,                   /* INNER  */
     FILTER = 266,                  /* FILTER  */
     WHERE = 267,                   /* WHERE  */
-    IDENT = 268,                   /* IDENT  */
-    STRING_LITERAL = 269,          /* STRING_LITERAL  */
-    TYPE_INTEGER = 270,            /* TYPE_INTEGER  */
-    TYPE_FLOAT = 271,              /* TYPE_FLOAT  */
-    TYPE_STRING = 272,             /* TYPE_STRING  */
-    KW_MEAN = 273,                 /* KW_MEAN  */
-    KW_MEDIAN = 274,               /* KW_MEDIAN  */
-    KW_STDDEV = 275,               /* KW_STDDEV  */
-    KW_MIN = 276,                  /* KW_MIN  */
-    KW_MAX = 277,                  /* KW_MAX  */
-    KW_HISTOGRAM = 278,            /* KW_HISTOGRAM  */
-    KW_SUMMARY = 279,              /* KW_SUMMARY  */
-    FNUMBER = 280,                 /* FNUMBER  */
-    INUMBER = 281,                 /* INUMBER  */
-    EQ = 282,                      /* EQ  */
-    NEQ = 283,                     /* NEQ  */
-    LE = 284,                      /* LE  */
-    GE = 285,                      /* GE  */
-    LT = 286,                      /* LT  */
-    GT = 287                       /* GT  */
+    TYPE_INTEGER = 268,            /* TYPE_INTEGER  */
+    TYPE_FLOAT = 269,              /* TYPE_FLOAT  */
+    TYPE_STRING = 270,             /* TYPE_STRING  */
+    KW_MEAN = 271,                 /* KW_MEAN  */
+    KW_MEDIAN = 272,               /* KW_MEDIAN  */
+    KW_STDDEV = 273,               /* KW_STDDEV  */
+    KW_MIN = 274,                  /* KW_MIN  */
+    KW_MAX = 275,                  /* KW_MAX  */
+    KW_HISTOGRAM = 276,            /* KW_HISTOGRAM  */
+    KW_SUMMARY = 277,              /* KW_SUMMARY  */
+    EQ = 278,                      /* EQ  */
+    NEQ = 279,                     /* NEQ  */
+    LT = 280,                      /* LT  */
+    GT = 281,                      /* GT  */
+    LE = 282,                      /* LE  */
+    GE = 283,                      /* GE  */
+    IDENT = 284,                   /* IDENT  */
+    STRING_LITERAL = 285,          /* STRING_LITERAL  */
+    INUMBER = 286,                 /* INUMBER  */
+    FNUMBER = 287                  /* FNUMBER  */
   };
   typedef enum yytokentype yytoken_kind_t;
 #endif
@@ -92,12 +92,12 @@ extern int yydebug;
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
 union YYSTYPE
 {
-#line 24 "parser.y"
+#line 15 "parser.y"
 
     int ival;
     double fval;
     char *str;
-    struct ASTNode *node;
+    ASTNode *node;
 
 #line 103 "parser.tab.h"
 

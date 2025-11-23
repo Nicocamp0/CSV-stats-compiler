@@ -69,28 +69,19 @@
 /* First part of user prologue.  */
 #line 1 "parser.y"
 
-    #include <stdio.h>
-    #include <stdlib.h>
-    #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include "ast.h"
 
-    #include "parser.tab.h"
-    #include "symbol_table.h"
-    #include "ast.h"
-    
-    extern int yylex(void);
-    extern int yylineno;
-    extern int yycolumn;
-    void yyerror(const char *s);
-    
-    SymbolTable *global_symtab;
-    ASTNode *global_root = NULL;
+extern int yylex(void);
+extern int yylineno;
+extern int yycolumn;
 
-    int opt_tos = 0;
-    char *output_file = NULL;
-    extern ASTNode *global_root;
-    //Null fo schema car pas de fichier csv lier
+void yyerror(const char *s);
 
-#line 94 "parser.tab.c"
+ASTNode *root = NULL;
+
+#line 85 "parser.tab.c"
 
 # ifndef YY_CAST
 #  ifdef __cplusplus
@@ -125,32 +116,32 @@ enum yysymbol_kind_t
   YYSYMBOL_SCHEMA = 4,                     /* SCHEMA  */
   YYSYMBOL_ASSOCIATE = 5,                  /* ASSOCIATE  */
   YYSYMBOL_WITH = 6,                       /* WITH  */
-  YYSYMBOL_ANALYZE = 7,                    /* ANALYZE  */
-  YYSYMBOL_COMPUTE = 8,                    /* COMPUTE  */
+  YYSYMBOL_COMPUTE = 7,                    /* COMPUTE  */
+  YYSYMBOL_ANALYZE = 8,                    /* ANALYZE  */
   YYSYMBOL_JOIN = 9,                       /* JOIN  */
   YYSYMBOL_INNER = 10,                     /* INNER  */
   YYSYMBOL_FILTER = 11,                    /* FILTER  */
   YYSYMBOL_WHERE = 12,                     /* WHERE  */
-  YYSYMBOL_IDENT = 13,                     /* IDENT  */
-  YYSYMBOL_STRING_LITERAL = 14,            /* STRING_LITERAL  */
-  YYSYMBOL_TYPE_INTEGER = 15,              /* TYPE_INTEGER  */
-  YYSYMBOL_TYPE_FLOAT = 16,                /* TYPE_FLOAT  */
-  YYSYMBOL_TYPE_STRING = 17,               /* TYPE_STRING  */
-  YYSYMBOL_KW_MEAN = 18,                   /* KW_MEAN  */
-  YYSYMBOL_KW_MEDIAN = 19,                 /* KW_MEDIAN  */
-  YYSYMBOL_KW_STDDEV = 20,                 /* KW_STDDEV  */
-  YYSYMBOL_KW_MIN = 21,                    /* KW_MIN  */
-  YYSYMBOL_KW_MAX = 22,                    /* KW_MAX  */
-  YYSYMBOL_KW_HISTOGRAM = 23,              /* KW_HISTOGRAM  */
-  YYSYMBOL_KW_SUMMARY = 24,                /* KW_SUMMARY  */
-  YYSYMBOL_FNUMBER = 25,                   /* FNUMBER  */
-  YYSYMBOL_INUMBER = 26,                   /* INUMBER  */
-  YYSYMBOL_EQ = 27,                        /* EQ  */
-  YYSYMBOL_NEQ = 28,                       /* NEQ  */
-  YYSYMBOL_LE = 29,                        /* LE  */
-  YYSYMBOL_GE = 30,                        /* GE  */
-  YYSYMBOL_LT = 31,                        /* LT  */
-  YYSYMBOL_GT = 32,                        /* GT  */
+  YYSYMBOL_TYPE_INTEGER = 13,              /* TYPE_INTEGER  */
+  YYSYMBOL_TYPE_FLOAT = 14,                /* TYPE_FLOAT  */
+  YYSYMBOL_TYPE_STRING = 15,               /* TYPE_STRING  */
+  YYSYMBOL_KW_MEAN = 16,                   /* KW_MEAN  */
+  YYSYMBOL_KW_MEDIAN = 17,                 /* KW_MEDIAN  */
+  YYSYMBOL_KW_STDDEV = 18,                 /* KW_STDDEV  */
+  YYSYMBOL_KW_MIN = 19,                    /* KW_MIN  */
+  YYSYMBOL_KW_MAX = 20,                    /* KW_MAX  */
+  YYSYMBOL_KW_HISTOGRAM = 21,              /* KW_HISTOGRAM  */
+  YYSYMBOL_KW_SUMMARY = 22,                /* KW_SUMMARY  */
+  YYSYMBOL_EQ = 23,                        /* EQ  */
+  YYSYMBOL_NEQ = 24,                       /* NEQ  */
+  YYSYMBOL_LT = 25,                        /* LT  */
+  YYSYMBOL_GT = 26,                        /* GT  */
+  YYSYMBOL_LE = 27,                        /* LE  */
+  YYSYMBOL_GE = 28,                        /* GE  */
+  YYSYMBOL_IDENT = 29,                     /* IDENT  */
+  YYSYMBOL_STRING_LITERAL = 30,            /* STRING_LITERAL  */
+  YYSYMBOL_INUMBER = 31,                   /* INUMBER  */
+  YYSYMBOL_FNUMBER = 32,                   /* FNUMBER  */
   YYSYMBOL_33_ = 33,                       /* '+'  */
   YYSYMBOL_34_ = 34,                       /* '-'  */
   YYSYMBOL_35_ = 35,                       /* '*'  */
@@ -158,18 +149,28 @@ enum yysymbol_kind_t
   YYSYMBOL_37_ = 37,                       /* ';'  */
   YYSYMBOL_38_ = 38,                       /* '{'  */
   YYSYMBOL_39_ = 39,                       /* '}'  */
-  YYSYMBOL_YYACCEPT = 40,                  /* $accept  */
-  YYSYMBOL_program = 41,                   /* program  */
-  YYSYMBOL_stmts = 42,                     /* stmts  */
-  YYSYMBOL_stmt = 43,                      /* stmt  */
-  YYSYMBOL_source_stmt = 44,               /* source_stmt  */
-  YYSYMBOL_schema_stmt = 45,               /* schema_stmt  */
-  YYSYMBOL_associate_stmt = 46,            /* associate_stmt  */
-  YYSYMBOL_analyze_stmt = 47,              /* analyze_stmt  */
-  YYSYMBOL_schema_fields = 48,             /* schema_fields  */
-  YYSYMBOL_analyze_ops = 49,               /* analyze_ops  */
-  YYSYMBOL_field_decl = 50,                /* field_decl  */
-  YYSYMBOL_field_type = 51                 /* field_type  */
+  YYSYMBOL_40_ = 40,                       /* '='  */
+  YYSYMBOL_41_ = 41,                       /* '.'  */
+  YYSYMBOL_42_ = 42,                       /* '('  */
+  YYSYMBOL_43_ = 43,                       /* ')'  */
+  YYSYMBOL_YYACCEPT = 44,                  /* $accept  */
+  YYSYMBOL_program = 45,                   /* program  */
+  YYSYMBOL_stmt_list = 46,                 /* stmt_list  */
+  YYSYMBOL_stmt = 47,                      /* stmt  */
+  YYSYMBOL_source_stmt = 48,               /* source_stmt  */
+  YYSYMBOL_schema_stmt = 49,               /* schema_stmt  */
+  YYSYMBOL_field_list = 50,                /* field_list  */
+  YYSYMBOL_field = 51,                     /* field  */
+  YYSYMBOL_associate_stmt = 52,            /* associate_stmt  */
+  YYSYMBOL_compute_stmt = 53,              /* compute_stmt  */
+  YYSYMBOL_column_ref = 54,                /* column_ref  */
+  YYSYMBOL_expression = 55,                /* expression  */
+  YYSYMBOL_join_stmt = 56,                 /* join_stmt  */
+  YYSYMBOL_filter_stmt = 57,               /* filter_stmt  */
+  YYSYMBOL_condition = 58,                 /* condition  */
+  YYSYMBOL_analyze_stmt = 59,              /* analyze_stmt  */
+  YYSYMBOL_analyze_ops = 60,               /* analyze_ops  */
+  YYSYMBOL_analyze_op = 61                 /* analyze_op  */
 };
 typedef enum yysymbol_kind_t yysymbol_kind_t;
 
@@ -495,18 +496,18 @@ union yyalloc
 #endif /* !YYCOPY_NEEDED */
 
 /* YYFINAL -- State number of the termination state.  */
-#define YYFINAL  3
+#define YYFINAL  25
 /* YYLAST -- Last index in YYTABLE.  */
-#define YYLAST   25
+#define YYLAST   123
 
 /* YYNTOKENS -- Number of terminals.  */
-#define YYNTOKENS  40
+#define YYNTOKENS  44
 /* YYNNTS -- Number of nonterminals.  */
-#define YYNNTS  12
+#define YYNNTS  18
 /* YYNRULES -- Number of rules.  */
-#define YYNRULES  19
+#define YYNRULES  52
 /* YYNSTATES -- Number of states.  */
-#define YYNSTATES  36
+#define YYNSTATES  116
 
 /* YYMAXUTOK -- Last valid token kind.  */
 #define YYMAXUTOK   287
@@ -527,9 +528,9 @@ static const yytype_int8 yytranslate[] =
        2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
        2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
        2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
-       2,     2,    35,    33,     2,    34,     2,    36,     2,     2,
+      42,    43,    35,    33,     2,    34,    41,    36,     2,     2,
        2,     2,     2,     2,     2,     2,     2,     2,     2,    37,
-       2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
+       2,    40,     2,     2,     2,     2,     2,     2,     2,     2,
        2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
        2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
        2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
@@ -556,10 +557,14 @@ static const yytype_int8 yytranslate[] =
 
 #if YYDEBUG
 /* YYRLINE[YYN] -- Source line where rule number YYN was defined.  */
-static const yytype_uint8 yyrline[] =
+static const yytype_int16 yyrline[] =
 {
-       0,    51,    51,    64,    67,    80,    81,    82,    83,    89,
-     103,   120,   145,   155,   158,   172,   177,   183,   184,   185
+       0,    46,    46,    53,    57,    62,    68,    69,    70,    71,
+      72,    73,    74,    79,    88,    96,    97,    98,   103,   108,
+     113,   122,   131,   139,   149,   155,   161,   165,   169,   173,
+     177,   181,   185,   189,   197,   206,   215,   219,   223,   227,
+     231,   235,   243,   250,   251,   252,   257,   263,   269,   275,
+     281,   287,   293
 };
 #endif
 
@@ -576,14 +581,16 @@ static const char *yysymbol_name (yysymbol_kind_t yysymbol) YY_ATTRIBUTE_UNUSED;
 static const char *const yytname[] =
 {
   "\"end of file\"", "error", "\"invalid token\"", "SOURCE", "SCHEMA",
-  "ASSOCIATE", "WITH", "ANALYZE", "COMPUTE", "JOIN", "INNER", "FILTER",
-  "WHERE", "IDENT", "STRING_LITERAL", "TYPE_INTEGER", "TYPE_FLOAT",
-  "TYPE_STRING", "KW_MEAN", "KW_MEDIAN", "KW_STDDEV", "KW_MIN", "KW_MAX",
-  "KW_HISTOGRAM", "KW_SUMMARY", "FNUMBER", "INUMBER", "EQ", "NEQ", "LE",
-  "GE", "LT", "GT", "'+'", "'-'", "'*'", "'/'", "';'", "'{'", "'}'",
-  "$accept", "program", "stmts", "stmt", "source_stmt", "schema_stmt",
-  "associate_stmt", "analyze_stmt", "schema_fields", "analyze_ops",
-  "field_decl", "field_type", YY_NULLPTR
+  "ASSOCIATE", "WITH", "COMPUTE", "ANALYZE", "JOIN", "INNER", "FILTER",
+  "WHERE", "TYPE_INTEGER", "TYPE_FLOAT", "TYPE_STRING", "KW_MEAN",
+  "KW_MEDIAN", "KW_STDDEV", "KW_MIN", "KW_MAX", "KW_HISTOGRAM",
+  "KW_SUMMARY", "EQ", "NEQ", "LT", "GT", "LE", "GE", "IDENT",
+  "STRING_LITERAL", "INUMBER", "FNUMBER", "'+'", "'-'", "'*'", "'/'",
+  "';'", "'{'", "'}'", "'='", "'.'", "'('", "')'", "$accept", "program",
+  "stmt_list", "stmt", "source_stmt", "schema_stmt", "field_list", "field",
+  "associate_stmt", "compute_stmt", "column_ref", "expression",
+  "join_stmt", "filter_stmt", "condition", "analyze_stmt", "analyze_ops",
+  "analyze_op", YY_NULLPTR
 };
 
 static const char *
@@ -593,7 +600,7 @@ yysymbol_name (yysymbol_kind_t yysymbol)
 }
 #endif
 
-#define YYPACT_NINF (-29)
+#define YYPACT_NINF (-43)
 
 #define yypact_value_is_default(Yyn) \
   ((Yyn) == YYPACT_NINF)
@@ -607,10 +614,18 @@ yysymbol_name (yysymbol_kind_t yysymbol)
    STATE-NUM.  */
 static const yytype_int8 yypact[] =
 {
-     -29,     3,    -3,   -29,    -5,    -4,    -2,    -1,   -29,   -29,
-     -29,   -29,   -29,     0,   -28,     7,   -23,   -21,     4,     5,
-     -29,   -29,   -10,   -20,     4,   -17,   -18,   -29,   -29,   -29,
-     -15,   -29,   -29,   -29,   -29,   -29
+      41,   -25,    -9,    -8,    -6,     9,    22,    50,    36,    41,
+     -43,   -43,   -43,   -43,   -43,   -43,   -43,   -43,    51,    42,
+      76,    43,    46,    45,    47,   -43,   -43,    49,    59,    60,
+     -13,    37,    61,    62,   -43,    63,     8,   -43,    55,    52,
+     -43,   -43,   -43,   -13,   -43,    34,    65,    66,    67,    68,
+      69,    70,    71,   -11,   -43,    52,    91,    90,    72,    73,
+      74,   -43,   -43,   -43,    75,   -21,   -13,   -13,   -13,   -13,
+     -43,    77,    78,    79,    80,    81,    82,    83,   -43,   -43,
+      94,   -13,   -43,   -43,   -43,   -43,   -43,   -33,   -33,   -43,
+     -43,   -43,   -43,   -43,   -43,   -43,   -43,   -43,    61,     7,
+      84,    85,   -13,   -13,   -13,   -13,   -13,   -13,   -43,   -43,
+      39,    39,    39,    39,    39,    39
 };
 
 /* YYDEFACT[STATE-NUM] -- Default reduction number in state STATE-NUM.
@@ -618,24 +633,32 @@ static const yytype_int8 yypact[] =
    means the default is an error.  */
 static const yytype_int8 yydefact[] =
 {
-       3,     0,     2,     1,     0,     0,     0,     0,     4,     5,
-       6,     7,     8,     0,     0,     0,     0,     0,    13,     0,
-      15,     9,     0,     0,    13,     0,     0,    17,    18,    19,
-       0,    10,    14,    11,    12,    16
+       5,     0,     0,     0,     0,     0,     0,     0,     0,     2,
+       4,     6,     7,     8,     9,    10,    11,    12,     0,     0,
+       0,     0,     0,     0,     0,     1,     3,     0,    17,     0,
+       0,    45,     0,     0,    13,     0,     0,    16,     0,    27,
+      26,    24,    25,     0,    28,     0,     0,     0,     0,     0,
+       0,     0,     0,     0,    44,     0,     0,     0,     0,     0,
+       0,    14,    15,    21,     0,     0,     0,     0,     0,     0,
+      22,     0,     0,     0,     0,     0,     0,     0,    42,    43,
+       0,     0,    18,    19,    20,    23,    29,    30,    31,    32,
+      33,    46,    47,    48,    49,    50,    51,    52,     0,     0,
+       0,     0,     0,     0,     0,     0,     0,     0,    35,    34,
+      36,    37,    38,    39,    40,    41
 };
 
 /* YYPGOTO[NTERM-NUM].  */
 static const yytype_int8 yypgoto[] =
 {
-     -29,   -29,   -29,   -29,   -29,   -29,   -29,   -29,     1,   -29,
-     -29,   -29
+     -43,   -43,   -43,    96,   -43,   -43,   -43,    87,   -43,   -43,
+     -32,   -42,   -43,   -43,   -43,   -43,   -43,    53
 };
 
 /* YYDEFGOTO[NTERM-NUM].  */
 static const yytype_int8 yydefgoto[] =
 {
-       0,     1,     2,     8,     9,    10,    11,    12,    23,    26,
-      24,    30
+       0,     8,     9,    10,    11,    12,    36,    37,    13,    14,
+      44,    45,    15,    16,   100,    17,    53,    54
 };
 
 /* YYTABLE[YYPACT[STATE-NUM]] -- What to do in state STATE-NUM.  If
@@ -643,40 +666,76 @@ static const yytype_int8 yydefgoto[] =
    number is the opposite.  If YYTABLE_NINF, syntax error.  */
 static const yytype_int8 yytable[] =
 {
-       4,     5,     6,     3,     7,    27,    28,    29,    13,    14,
-      18,    15,    16,    19,    17,    20,    21,    22,    25,    31,
-      33,    34,    35,     0,     0,    32
+      56,    65,    68,    69,    18,    46,    47,    48,    49,    50,
+      51,    52,    66,    67,    68,    69,    39,    40,    41,    42,
+      19,    20,    86,    21,    87,    88,    89,    90,    78,    43,
+     102,   103,   104,   105,   106,   107,    25,    35,    22,    99,
+      66,    67,    68,    69,     1,     2,     3,    61,     4,     5,
+       6,    23,     7,    46,    47,    48,    49,    50,    51,    52,
+     110,   111,   112,   113,   114,   115,   101,    66,    67,    68,
+      69,    70,    66,    67,    68,    69,    58,    59,    60,    24,
+      28,    27,    29,    30,    31,    32,    34,    33,    35,    38,
+      55,    57,    63,    64,    71,    72,    73,    74,    75,    76,
+      77,    80,    81,    98,    85,    26,    79,     0,     0,    82,
+      83,    84,     0,     0,    91,    92,    93,    94,    95,    96,
+      97,   108,   109,    62
 };
 
 static const yytype_int8 yycheck[] =
 {
-       3,     4,     5,     0,     7,    15,    16,    17,    13,    13,
-      38,    13,    13,     6,    14,    38,    37,    13,    13,    39,
-      37,    39,    37,    -1,    -1,    24
+      32,    43,    35,    36,    29,    16,    17,    18,    19,    20,
+      21,    22,    33,    34,    35,    36,    29,    30,    31,    32,
+      29,    29,    43,    29,    66,    67,    68,    69,    39,    42,
+      23,    24,    25,    26,    27,    28,     0,    29,    29,    81,
+      33,    34,    35,    36,     3,     4,     5,    39,     7,     8,
+       9,    29,    11,    16,    17,    18,    19,    20,    21,    22,
+     102,   103,   104,   105,   106,   107,    98,    33,    34,    35,
+      36,    37,    33,    34,    35,    36,    13,    14,    15,    29,
+      38,    30,     6,    40,    38,    40,    37,    40,    29,    29,
+      29,    29,    37,    41,    29,    29,    29,    29,    29,    29,
+      29,    10,    12,     9,    29,     9,    53,    -1,    -1,    37,
+      37,    37,    -1,    -1,    37,    37,    37,    37,    37,    37,
+      37,    37,    37,    36
 };
 
 /* YYSTOS[STATE-NUM] -- The symbol kind of the accessing symbol of
    state STATE-NUM.  */
 static const yytype_int8 yystos[] =
 {
-       0,    41,    42,     0,     3,     4,     5,     7,    43,    44,
-      45,    46,    47,    13,    13,    13,    13,    14,    38,     6,
-      38,    37,    13,    48,    50,    13,    49,    15,    16,    17,
-      51,    39,    48,    37,    39,    37
+       0,     3,     4,     5,     7,     8,     9,    11,    45,    46,
+      47,    48,    49,    52,    53,    56,    57,    59,    29,    29,
+      29,    29,    29,    29,    29,     0,    47,    30,    38,     6,
+      40,    38,    40,    40,    37,    29,    50,    51,    29,    29,
+      30,    31,    32,    42,    54,    55,    16,    17,    18,    19,
+      20,    21,    22,    60,    61,    29,    54,    29,    13,    14,
+      15,    39,    51,    37,    41,    55,    33,    34,    35,    36,
+      37,    29,    29,    29,    29,    29,    29,    29,    39,    61,
+      10,    12,    37,    37,    37,    29,    43,    55,    55,    55,
+      55,    37,    37,    37,    37,    37,    37,    37,     9,    55,
+      58,    54,    23,    24,    25,    26,    27,    28,    37,    37,
+      55,    55,    55,    55,    55,    55
 };
 
 /* YYR1[RULE-NUM] -- Symbol kind of the left-hand side of rule RULE-NUM.  */
 static const yytype_int8 yyr1[] =
 {
-       0,    40,    41,    42,    42,    43,    43,    43,    43,    44,
-      45,    46,    47,    48,    48,    49,    50,    51,    51,    51
+       0,    44,    45,    46,    46,    46,    47,    47,    47,    47,
+      47,    47,    47,    48,    49,    50,    50,    50,    51,    51,
+      51,    52,    53,    54,    55,    55,    55,    55,    55,    55,
+      55,    55,    55,    55,    56,    57,    58,    58,    58,    58,
+      58,    58,    59,    60,    60,    60,    61,    61,    61,    61,
+      61,    61,    61
 };
 
 /* YYR2[RULE-NUM] -- Number of symbols on the right-hand side of rule RULE-NUM.  */
 static const yytype_int8 yyr2[] =
 {
-       0,     2,     1,     0,     2,     1,     1,     1,     1,     4,
-       5,     5,     5,     0,     2,     0,     3,     1,     1,     1
+       0,     2,     1,     2,     1,     0,     1,     1,     1,     1,
+       1,     1,     1,     4,     5,     2,     1,     0,     3,     3,
+       3,     5,     5,     3,     1,     1,     1,     1,     1,     3,
+       3,     3,     3,     3,     8,     7,     3,     3,     3,     3,
+       3,     3,     5,     2,     1,     0,     3,     3,     3,     3,
+       3,     3,     3
 };
 
 
@@ -1139,159 +1198,374 @@ yyreduce:
   YY_REDUCE_PRINT (yyn);
   switch (yyn)
     {
-  case 2: /* program: stmts  */
-#line 52 "parser.y"
+  case 2: /* program: stmt_list  */
+#line 47 "parser.y"
     {
-        ASTNode *program_node = ast_create(AST_PROGRAM, NULL, NULL, NULL); 
-        if ((yyvsp[0].node) != NULL) {
-            ast_add_child(program_node, (yyvsp[0].node));
-        }
-        global_root = program_node; 
-        (yyval.node) = program_node; 
+        root = ast_create(AST_PROGRAM, NULL, (yyvsp[0].node), NULL);
     }
-#line 1153 "parser.tab.c"
-    break;
-
-  case 3: /* stmts: %empty  */
-#line 64 "parser.y"
-    {
-        (yyval.node) = NULL;
-    }
-#line 1161 "parser.tab.c"
-    break;
-
-  case 4: /* stmts: stmts stmt  */
-#line 68 "parser.y"
-        {
-            if ((yyvsp[-1].node) == NULL) {
-            (yyval.node) = (yyvsp[0].node); 
-        } else {
-            ast_add_child((yyvsp[-1].node), (yyvsp[0].node));
-            (yyval.node) = (yyvsp[-1].node); 
-        }
-    }
-#line 1174 "parser.tab.c"
-    break;
-
-  case 9: /* source_stmt: SOURCE IDENT STRING_LITERAL ';'  */
-#line 90 "parser.y"
-                                                {
-                                                    //Vérifie que le symbole n'a pas été déjà défini 
-                                                    if (symtab_find(global_symtab, (yyvsp[-2].str)) != NULL) {
-                                                        fprintf(stderr, "[ERREUR SÉMANTIQUE] L'identifiant '%s' est déjà défini. Redéfinition de source.\n", (yyvsp[-2].str));
-                                                        YYERROR; 
-                                                    }
-                                                    symtab_add(global_symtab, (yyvsp[-2].str), "source");
-                                                    (yyval.node) = ast_create(AST_SOURCE, (yyvsp[-2].str), (yyvsp[-1].str),NULL);
-                                                    printf("[PARSE] Source %s -> %s\n", (yyvsp[-2].str), (yyvsp[-1].str));
-                                                }
-#line 1189 "parser.tab.c"
-    break;
-
-  case 10: /* schema_stmt: SCHEMA IDENT '{' schema_fields '}'  */
-#line 104 "parser.y"
-                                                {
-                                                    //Vérifie que le symbole n'a pas déjà un schema défini 
-                                                    if (symtab_find(global_symtab, (yyvsp[-3].str)) != NULL) {
-                                                        fprintf(stderr, "[ERREUR SÉMANTIQUE] L'identifiant '%s' est déjà défini.\n", (yyvsp[-3].str));
-                                                        YYERROR; 
-                                                    }
-                                                    symtab_add(global_symtab, (yyvsp[-3].str), "schema");
-                                                    (yyval.node) = ast_create(AST_SCHEMA, (yyvsp[-3].str), NULL,NULL);
-                                                    if ((yyvsp[-1].node) != NULL) {
-                                                        ast_add_child((yyval.node), (yyvsp[-1].node)); // $4 est la racine de la liste d'enfants
-                                                    }
-                                                    printf("[PARSE] Schema %s {...}\n", (yyvsp[-3].str));
-                                                }
 #line 1207 "parser.tab.c"
     break;
 
-  case 11: /* associate_stmt: ASSOCIATE IDENT WITH IDENT ';'  */
-#line 121 "parser.y"
-                                                {
-                                                    // Le premier IDENT ($2) est le nom du schéma
-                                                    // Le second IDENT ($4) est le nom de la source
-
-                                                    printf("[PARSE] Associate %s with %s\n", (yyvsp[-3].str), (yyvsp[-1].str));
-
-                                                    Symbol *schema_sym = symtab_find(global_symtab, (yyvsp[-3].str));
-                                                    Symbol *source_sym = symtab_find(global_symtab, (yyvsp[-1].str));
-
-                                                    if (source_sym == NULL || (strcmp(source_sym->type, "source") != 0 && strcmp(source_sym->type, "join") != 0)) {
-                                                        fprintf(stderr, "[ERREUR SÉMANTIQUE] Source non définie ou type incorrect: %s\n", (yyvsp[-1].str));
-                                                        YYERROR;
-                                                    }
-
-                                                    if (schema_sym == NULL || strcmp(schema_sym->type, "schema") != 0) {
-                                                        fprintf(stderr, "[ERREUR SÉMANTIQUE] Schéma non défini ou type incorrect: %s\n", (yyvsp[-3].str));
-                                                        YYERROR;
-                                                    }
-
-                                                    (yyval.node) = ast_create(AST_ASSOCIATE, (yyvsp[-3].str), (yyvsp[-1].str),NULL);
-                                                }
-#line 1233 "parser.tab.c"
+  case 3: /* stmt_list: stmt_list stmt  */
+#line 54 "parser.y"
+    {
+        (yyval.node) = ast_cons((yyvsp[-1].node), (yyvsp[0].node));
+    }
+#line 1215 "parser.tab.c"
     break;
 
-  case 12: /* analyze_stmt: ANALYZE IDENT '{' analyze_ops '}'  */
-#line 146 "parser.y"
-                                                    {
-                                                        printf("[PARSE] Analyze %s {...}\n", (yyvsp[-3].str));
-                                                    }
-#line 1241 "parser.tab.c"
+  case 4: /* stmt_list: stmt  */
+#line 58 "parser.y"
+    {
+        (yyval.node) = (yyvsp[0].node);
+    }
+#line 1223 "parser.tab.c"
     break;
 
-  case 13: /* schema_fields: %empty  */
-#line 155 "parser.y"
-                                                    {
-                                                        (yyval.node) = NULL;
-                                                    }
-#line 1249 "parser.tab.c"
+  case 5: /* stmt_list: %empty  */
+#line 62 "parser.y"
+    {
+        (yyval.node) = NULL;
+    }
+#line 1231 "parser.tab.c"
     break;
 
-  case 14: /* schema_fields: field_decl schema_fields  */
-#line 159 "parser.y"
-                                                    {
-                                                        // $1 est le nœud AST_FIELD (la colonne)
-                                                        // $2 est le résultat (liste) de l'appel récursif suivant
-                                                        
-                                                        if ((yyvsp[0].node) != NULL) {
-                                                            ast_add_child((yyvsp[0].node), (yyvsp[-1].node));
-                                                            (yyval.node) = (yyvsp[0].node);
-                                                        } else {
-                                                            (yyval.node) = (yyvsp[-1].node);
-                                                        }
-                                                    }
-#line 1265 "parser.tab.c"
+  case 13: /* source_stmt: SOURCE IDENT STRING_LITERAL ';'  */
+#line 80 "parser.y"
+    {
+        ASTNode *file = ast_create(AST_EXPRESSION, (yyvsp[-1].str), NULL, NULL);
+        (yyval.node) = ast_create(AST_SOURCE, (yyvsp[-2].str), file, NULL);
+    }
+#line 1240 "parser.tab.c"
     break;
 
-  case 16: /* field_decl: IDENT field_type ';'  */
+  case 14: /* schema_stmt: SCHEMA IDENT '{' field_list '}'  */
+#line 89 "parser.y"
+    {
+        (yyval.node) = ast_create(AST_SCHEMA, (yyvsp[-3].str), (yyvsp[-1].node), NULL);
+    }
+#line 1248 "parser.tab.c"
+    break;
+
+  case 15: /* field_list: field_list field  */
+#line 96 "parser.y"
+                          { (yyval.node) = ast_cons((yyvsp[-1].node), (yyvsp[0].node)); }
+#line 1254 "parser.tab.c"
+    break;
+
+  case 16: /* field_list: field  */
+#line 97 "parser.y"
+                          { (yyval.node) = (yyvsp[0].node); }
+#line 1260 "parser.tab.c"
+    break;
+
+  case 17: /* field_list: %empty  */
+#line 98 "parser.y"
+                          { (yyval.node) = NULL; }
+#line 1266 "parser.tab.c"
+    break;
+
+  case 18: /* field: IDENT TYPE_INTEGER ';'  */
+#line 104 "parser.y"
+    {
+        ASTNode *t = ast_create(AST_FIELD, "integer", NULL, NULL);
+        (yyval.node) = ast_create(AST_FIELD, (yyvsp[-2].str), t, NULL);
+    }
+#line 1275 "parser.tab.c"
+    break;
+
+  case 19: /* field: IDENT TYPE_FLOAT ';'  */
+#line 109 "parser.y"
+    {
+        ASTNode *t = ast_create(AST_FIELD, "float", NULL, NULL);
+        (yyval.node) = ast_create(AST_FIELD, (yyvsp[-2].str), t, NULL);
+    }
+#line 1284 "parser.tab.c"
+    break;
+
+  case 20: /* field: IDENT TYPE_STRING ';'  */
+#line 114 "parser.y"
+    {
+        ASTNode *t = ast_create(AST_FIELD, "string", NULL, NULL);
+        (yyval.node) = ast_create(AST_FIELD, (yyvsp[-2].str), t, NULL);
+    }
+#line 1293 "parser.tab.c"
+    break;
+
+  case 21: /* associate_stmt: ASSOCIATE IDENT WITH IDENT ';'  */
+#line 123 "parser.y"
+    {
+        ASTNode *src = ast_create(AST_EXPRESSION, (yyvsp[-1].str), NULL, NULL);
+        (yyval.node) = ast_create(AST_ASSOCIATE, (yyvsp[-3].str), src, NULL);
+    }
+#line 1302 "parser.tab.c"
+    break;
+
+  case 22: /* compute_stmt: COMPUTE IDENT '=' expression ';'  */
+#line 132 "parser.y"
+    {
+        (yyval.node) = ast_create(AST_COMPUTE, (yyvsp[-3].str), (yyvsp[-1].node), NULL);
+    }
+#line 1310 "parser.tab.c"
+    break;
+
+  case 23: /* column_ref: IDENT '.' IDENT  */
+#line 140 "parser.y"
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "%s.%s", (yyvsp[-2].str), (yyvsp[0].str));
+        (yyval.node) = ast_create(AST_EXPRESSION, buf, NULL, NULL);
+    }
+#line 1320 "parser.tab.c"
+    break;
+
+  case 24: /* expression: INUMBER  */
+#line 150 "parser.y"
+    {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%d", (yyvsp[0].ival));
+        (yyval.node) = ast_create(AST_EXPRESSION, buf, NULL, NULL);
+    }
+#line 1330 "parser.tab.c"
+    break;
+
+  case 25: /* expression: FNUMBER  */
+#line 156 "parser.y"
+    {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%g", (yyvsp[0].fval));
+        (yyval.node) = ast_create(AST_EXPRESSION, buf, NULL, NULL);
+    }
+#line 1340 "parser.tab.c"
+    break;
+
+  case 26: /* expression: STRING_LITERAL  */
+#line 162 "parser.y"
+    {
+        (yyval.node) = ast_create(AST_EXPRESSION, (yyvsp[0].str), NULL, NULL);
+    }
+#line 1348 "parser.tab.c"
+    break;
+
+  case 27: /* expression: IDENT  */
+#line 166 "parser.y"
+    {
+        (yyval.node) = ast_create(AST_EXPRESSION, (yyvsp[0].str), NULL, NULL);
+    }
+#line 1356 "parser.tab.c"
+    break;
+
+  case 28: /* expression: column_ref  */
+#line 170 "parser.y"
+    {
+        (yyval.node) = (yyvsp[0].node);
+    }
+#line 1364 "parser.tab.c"
+    break;
+
+  case 29: /* expression: '(' expression ')'  */
+#line 174 "parser.y"
+    {
+        (yyval.node) = (yyvsp[-1].node);
+    }
+#line 1372 "parser.tab.c"
+    break;
+
+  case 30: /* expression: expression '+' expression  */
 #line 178 "parser.y"
-                                                    {
-                                                        (yyval.node) = ast_create(AST_FIELD, (yyvsp[-2].str), NULL,(yyvsp[-1].str));
-                                                    }
-#line 1273 "parser.tab.c"
+    {
+        (yyval.node) = ast_create(AST_EXPRESSION, "+", (yyvsp[-2].node), (yyvsp[0].node));
+    }
+#line 1380 "parser.tab.c"
     break;
 
-  case 17: /* field_type: TYPE_INTEGER  */
-#line 183 "parser.y"
-                     { (yyval.str) = strdup("integer"); }
-#line 1279 "parser.tab.c"
+  case 31: /* expression: expression '-' expression  */
+#line 182 "parser.y"
+    {
+        (yyval.node) = ast_create(AST_EXPRESSION, "-", (yyvsp[-2].node), (yyvsp[0].node));
+    }
+#line 1388 "parser.tab.c"
     break;
 
-  case 18: /* field_type: TYPE_FLOAT  */
-#line 184 "parser.y"
-                     { (yyval.str) = strdup("float"); }
-#line 1285 "parser.tab.c"
+  case 32: /* expression: expression '*' expression  */
+#line 186 "parser.y"
+    {
+        (yyval.node) = ast_create(AST_EXPRESSION, "*", (yyvsp[-2].node), (yyvsp[0].node));
+    }
+#line 1396 "parser.tab.c"
     break;
 
-  case 19: /* field_type: TYPE_STRING  */
-#line 185 "parser.y"
-                     { (yyval.str) = strdup("string"); }
-#line 1291 "parser.tab.c"
+  case 33: /* expression: expression '/' expression  */
+#line 190 "parser.y"
+    {
+        (yyval.node) = ast_create(AST_EXPRESSION, "/", (yyvsp[-2].node), (yyvsp[0].node));
+    }
+#line 1404 "parser.tab.c"
+    break;
+
+  case 34: /* join_stmt: JOIN IDENT '=' column_ref INNER JOIN column_ref ';'  */
+#line 198 "parser.y"
+    {
+        (yyval.node) = ast_create(AST_JOIN, (yyvsp[-6].str), (yyvsp[-4].node), (yyvsp[-1].node));
+    }
+#line 1412 "parser.tab.c"
+    break;
+
+  case 35: /* filter_stmt: FILTER IDENT '=' IDENT WHERE condition ';'  */
+#line 207 "parser.y"
+    {
+        ASTNode *src = ast_create(AST_EXPRESSION, (yyvsp[-3].str), NULL, NULL);
+        (yyval.node) = ast_create(AST_FILTER, (yyvsp[-5].str), src, (yyvsp[-1].node));
+    }
+#line 1421 "parser.tab.c"
+    break;
+
+  case 36: /* condition: expression EQ expression  */
+#line 216 "parser.y"
+    {
+        (yyval.node) = ast_create(AST_CONDITION, "==", (yyvsp[-2].node), (yyvsp[0].node));
+    }
+#line 1429 "parser.tab.c"
+    break;
+
+  case 37: /* condition: expression NEQ expression  */
+#line 220 "parser.y"
+    {
+        (yyval.node) = ast_create(AST_CONDITION, "!=", (yyvsp[-2].node), (yyvsp[0].node));
+    }
+#line 1437 "parser.tab.c"
+    break;
+
+  case 38: /* condition: expression LT expression  */
+#line 224 "parser.y"
+    {
+        (yyval.node) = ast_create(AST_CONDITION, "<", (yyvsp[-2].node), (yyvsp[0].node));
+    }
+#line 1445 "parser.tab.c"
+    break;
+
+  case 39: /* condition: expression GT expression  */
+#line 228 "parser.y"
+    {
+        (yyval.node) = ast_create(AST_CONDITION, ">", (yyvsp[-2].node), (yyvsp[0].node));
+    }
+#line 1453 "parser.tab.c"
+    break;
+
+  case 40: /* condition: expression LE expression  */
+#line 232 "parser.y"
+    {
+        (yyval.node) = ast_create(AST_CONDITION, "<=", (yyvsp[-2].node), (yyvsp[0].node));
+    }
+#line 1461 "parser.tab.c"
+    break;
+
+  case 41: /* condition: expression GE expression  */
+#line 236 "parser.y"
+    {
+        (yyval.node) = ast_create(AST_CONDITION, ">=", (yyvsp[-2].node), (yyvsp[0].node));
+    }
+#line 1469 "parser.tab.c"
+    break;
+
+  case 42: /* analyze_stmt: ANALYZE IDENT '{' analyze_ops '}'  */
+#line 244 "parser.y"
+    {
+        (yyval.node) = ast_create(AST_ANALYZE, (yyvsp[-3].str), (yyvsp[-1].node), NULL);
+    }
+#line 1477 "parser.tab.c"
+    break;
+
+  case 43: /* analyze_ops: analyze_ops analyze_op  */
+#line 250 "parser.y"
+                                { (yyval.node) = ast_cons((yyvsp[-1].node), (yyvsp[0].node)); }
+#line 1483 "parser.tab.c"
+    break;
+
+  case 44: /* analyze_ops: analyze_op  */
+#line 251 "parser.y"
+                                { (yyval.node) = (yyvsp[0].node); }
+#line 1489 "parser.tab.c"
+    break;
+
+  case 45: /* analyze_ops: %empty  */
+#line 252 "parser.y"
+                                { (yyval.node) = NULL; }
+#line 1495 "parser.tab.c"
+    break;
+
+  case 46: /* analyze_op: KW_MEAN IDENT ';'  */
+#line 258 "parser.y"
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "mean %s", (yyvsp[-1].str));
+        (yyval.node) = ast_create(AST_ANALYZE_OP, buf, NULL, NULL);
+    }
+#line 1505 "parser.tab.c"
+    break;
+
+  case 47: /* analyze_op: KW_MEDIAN IDENT ';'  */
+#line 264 "parser.y"
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "median %s", (yyvsp[-1].str));
+        (yyval.node) = ast_create(AST_ANALYZE_OP, buf, NULL, NULL);
+    }
+#line 1515 "parser.tab.c"
+    break;
+
+  case 48: /* analyze_op: KW_STDDEV IDENT ';'  */
+#line 270 "parser.y"
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "std_dev %s", (yyvsp[-1].str));
+        (yyval.node) = ast_create(AST_ANALYZE_OP, buf, NULL, NULL);
+    }
+#line 1525 "parser.tab.c"
+    break;
+
+  case 49: /* analyze_op: KW_MIN IDENT ';'  */
+#line 276 "parser.y"
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "min %s", (yyvsp[-1].str));
+        (yyval.node) = ast_create(AST_ANALYZE_OP, buf, NULL, NULL);
+    }
+#line 1535 "parser.tab.c"
+    break;
+
+  case 50: /* analyze_op: KW_MAX IDENT ';'  */
+#line 282 "parser.y"
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "max %s", (yyvsp[-1].str));
+        (yyval.node) = ast_create(AST_ANALYZE_OP, buf, NULL, NULL);
+    }
+#line 1545 "parser.tab.c"
+    break;
+
+  case 51: /* analyze_op: KW_HISTOGRAM IDENT ';'  */
+#line 288 "parser.y"
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "histogram %s", (yyvsp[-1].str));
+        (yyval.node) = ast_create(AST_ANALYZE_OP, buf, NULL, NULL);
+    }
+#line 1555 "parser.tab.c"
+    break;
+
+  case 52: /* analyze_op: KW_SUMMARY IDENT ';'  */
+#line 294 "parser.y"
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "summary %s", (yyvsp[-1].str));
+        (yyval.node) = ast_create(AST_ANALYZE_OP, buf, NULL, NULL);
+    }
+#line 1565 "parser.tab.c"
     break;
 
 
-#line 1295 "parser.tab.c"
+#line 1569 "parser.tab.c"
 
       default: break;
     }
@@ -1484,29 +1758,20 @@ yyreturnlab:
   return yyresult;
 }
 
-#line 187 "parser.y"
+#line 301 "parser.y"
 
-
-/* ======== SECTION CODE C (bas du fichier) ======== */
 
 void yyerror(const char *s) {
-    fprintf(stderr, "[ERREUR SYNTAXE] %s (ligne %d, col %d)\n", s, yylineno, yycolumn);
+    fprintf(stderr, "[ERREUR SYNTAXE] %s (ligne %d)\n", s, yylineno);
 }
 
-int main(int argc, char **argv) {
-    global_symtab = symtab_create();
-    if (yyparse() == 0){
+int main(void) {
+    if (yyparse() == 0) {
         printf("Analyse syntaxique réussie\n");
-        printf("\n=== Arbre Syntaxique Abstrait ===\n");
-        if (global_root) {
-            ast_print(global_root, 0); // Appeler ast_print sur la racine
-        } else {
-            printf("(AST Vide)\\n");
-        }
-        symtab_free(global_symtab);
-    }else{
-        symtab_free(global_symtab);
-        return 1;
+        printf("=== AST ===\n");
+        ast_print(root, 0);
+    } else {
+        printf("Échec de l'analyse syntaxique\n");
     }
     return 0;
 }

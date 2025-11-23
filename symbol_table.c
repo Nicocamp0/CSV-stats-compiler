@@ -1,40 +1,33 @@
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
 #include "symbol_table.h"
 
-SymbolTable *symtab_create() {
-    SymbolTable *st = (SymbolTable *)malloc(sizeof(SymbolTable));
-    st->symbols = NULL;
-    st->n_symbols = 0;
-    return st;
-}
+#define ST_MAX 1024
 
-void symtab_add(SymbolTable *st, const char *name, const char *type) {
-    Symbol *s = (Symbol *)malloc(sizeof(Symbol));
-    s->name = strdup(name);
-    s->type = strdup(type);
-    st->symbols = (Symbol **)realloc(st->symbols, sizeof(Symbol*)*(st->n_symbols+1));
-    st->symbols[st->n_symbols++] = s;
-}
+static char *symbols[ST_MAX];
+static int   count = 0;
 
-Symbol *symtab_find(SymbolTable *st, const char *name) {
-    for(int i=0;i<st->n_symbols;i++)
-        if(strcmp(st->symbols[i]->name,name)==0)
-            return st->symbols[i];
-    return NULL;
-}
-
-void symtab_print(SymbolTable *st) {
-    printf("=== Symbol Table ===\n");
-    for(int i=0;i<st->n_symbols;i++)
-        printf("%s : %s\n", st->symbols[i]->name, st->symbols[i]->type);
-}
-
-void symtab_free(SymbolTable *st) {
-    for(int i=0;i<st->n_symbols;i++) {
-        free(st->symbols[i]->name);
-        free(st->symbols[i]->type);
-        free(st->symbols[i]);
+void st_add(const char *name) {
+    if (count >= ST_MAX) {
+        fprintf(stderr, "[SYMTAB] Table pleine, impossible d’ajouter %s\n", name);
+        return;
     }
-    free(st->symbols);
-    free(st);
+    symbols[count++] = strdup(name);
+}
+
+int st_exists(const char *name) {
+    for (int i = 0; i < count; i++) {
+        if (strcmp(symbols[i], name) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+void st_print(void) {
+    printf("=== Table des symboles ===\n");
+    for (int i = 0; i < count; i++) {
+        printf("  %s\n", symbols[i]);
+    }
 }
 
