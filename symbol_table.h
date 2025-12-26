@@ -36,6 +36,10 @@ const char *schema_get_col_type(Schema *schema, const char *column);
 
 void symtab_print(SymbolTable *t);
 void symtab_associate(SymbolTable *t, const char *schema, const char *source);
+Schema *symtab_add_empty_schema(SymbolTable *t, const char *name);
+Schema *symtab_clone_schema(SymbolTable *t, const char *new_name, Schema *base);
+int schema_add_column(Schema *s, const char *name, const char *type);
+
 
 #endif
 

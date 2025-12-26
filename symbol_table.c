@@ -70,3 +70,29 @@ void symtab_associate(SymbolTable *t, const char *schema, const char *source) {
     Schema *s = symtab_get_schema(t, schema);
     if (s) strcpy(s->source, source);
 }
+Schema *symtab_add_empty_schema(SymbolTable *t, const char *name) {
+    Schema *s = &t->schemas[t->schema_count++];
+    strcpy(s->name, name);
+    strcpy(s->source, "");     // dataset virtuel
+    s->column_count = 0;
+    return s;
+}
+
+int schema_add_column(Schema *s, const char *name, const char *type) {
+    // refuse doublons
+    for (int i = 0; i < s->column_count; i++)
+        if (strcmp(s->columns[i].name, name) == 0) return 0;
+
+    Column *c = &s->columns[s->column_count++];
+    strcpy(c->name, name);
+    strcpy(c->type, type);
+    return 1;
+}
+
+Schema *symtab_clone_schema(SymbolTable *t, const char *new_name, Schema *base) {
+    Schema *s = symtab_add_empty_schema(t, new_name);
+    for (int i = 0; i < base->column_count; i++) {
+        schema_add_column(s, base->columns[i].name, base->columns[i].type);
+    }
+    return s;
+}

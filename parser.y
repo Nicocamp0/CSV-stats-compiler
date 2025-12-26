@@ -290,6 +290,64 @@ int main(void)
 
         symtab_print(symtab);
 
+
+        // 2e passe : construire les datasets virtuels (join/filter) et colonnes calculées (compute)
+
+
+ASTNode *m = root->left;
+while (m) {
+
+    if (m->type == AST_ASSOCIATE) {
+        // par défaut, contexte = nom du schema
+        
+    }
+
+    if (m->type == AST_JOIN) {
+        // join J = s1.c1 inner s2.c2
+        // m->left->text  = "s1.c1"
+        // m->right->text = "s2.c2"
+        char s1[128], c1[128], s2[128], c2[128];
+        sscanf(m->left->text,  "%127[^.].%127s", s1, c1);
+        sscanf(m->right->text, "%127[^.].%127s", s2, c2);
+
+        Schema *A = symtab_get_schema_by_source(symtab, s1);
+        Schema *B = symtab_get_schema_by_source(symtab, s2);
+
+        if (A && B) {
+            Schema *J = symtab_add_empty_schema(symtab, m->text);
+            // colonnes = union (détecter collisions)
+            for (int i = 0; i < A->column_count; i++)
+                schema_add_column(J, A->columns[i].name, A->columns[i].type);
+            for (int i = 0; i < B->column_count; i++)
+                schema_add_column(J, B->columns[i].name, B->columns[i].type);
+        }
+       
+    }
+
+    if (m->type == AST_FILTER) {
+        // filter F = SRC where ...
+        const char *src = m->left->text;
+
+        Schema *base = symtab_get_schema(symtab, src);
+        if (!base) base = symtab_get_schema_by_source(symtab, src);
+
+        if (base) symtab_clone_schema(symtab, m->text, base);
+
+        
+    }
+
+    if (m->type == AST_COMPUTE) {
+        // compute newcol = expr;
+        // on ajoute plus tard après avoir inféré le type dans semantic_check
+        // ici juste: current_dataset reste
+    }
+
+    m = m->next;
+}
+printf("\n=== TABLE DES SYMBOLES (après JOIN/FILTER) ===\n");
+symtab_print(symtab);
+
+
         printf("\n=== Analyse sémantique ===\n");
         if (semantic_check(root, symtab) == 0)
             printf("✓ Aucun problème sémantique détecté.\n");
