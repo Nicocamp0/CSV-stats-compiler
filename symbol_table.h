@@ -1,9 +1,41 @@
 #ifndef SYMBOL_TABLE_H
 #define SYMBOL_TABLE_H
 
-void st_add(const char *name);
-int  st_exists(const char *name);
-void st_print(void);
+#include "ast.h"
+
+/* ==== Structures ==== */
+
+typedef struct {
+    char name[64];      // nom du champ
+    char type[16];      // integer, float, string
+} Column;
+
+typedef struct {
+    char name[64];      // nom du schema
+    char source[64];    // nom de la source associée
+    Column columns[128];
+    int column_count;
+} Schema;
+
+typedef struct {
+    Schema schemas[32];
+    int schema_count;
+} SymbolTable;
+
+/* ==== Fonctions ==== */
+
+SymbolTable *symtab_create();
+void symtab_add_source(SymbolTable *t, const char *name);
+void symtab_add_schema(SymbolTable *t, const char *schema, const char *source);
+void symtab_add_field(SymbolTable *t, const char *schema, const char *field, const char *type);
+
+Schema *symtab_get_schema(SymbolTable *t, const char *schema_name);
+Schema *symtab_get_schema_by_source(SymbolTable *t, const char *source_name);
+
+const char *schema_get_col_type(Schema *schema, const char *column);
+
+void symtab_print(SymbolTable *t);
+void symtab_associate(SymbolTable *t, const char *schema, const char *source);
 
 #endif
 

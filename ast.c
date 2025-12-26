@@ -5,58 +5,53 @@
 
 ASTNode *ast_create(NodeType type, const char *text, ASTNode *left, ASTNode *right) {
     ASTNode *n = malloc(sizeof(ASTNode));
-    if (!n) {
-        perror("malloc");
-        exit(EXIT_FAILURE);
-    }
-    n->type  = type;
-    n->left  = left;
+    n->type = type;
+    n->left = left;
     n->right = right;
-    n->next  = NULL;
-    n->text  = text ? strdup(text) : NULL;
+    n->next = NULL;
+    n->text = text ? strdup(text) : NULL;
     return n;
 }
 
-ASTNode *ast_cons(ASTNode *first, ASTNode *rest) {
-    if (!first) return rest;
-    first->next = rest;
-    return first;
+ASTNode *ast_cons(ASTNode *list, ASTNode *node) {
+    if (!list) return node;
+
+    ASTNode *cur = list;
+    while (cur->next) cur = cur->next;
+    cur->next = node;
+    return list;
 }
 
-static void print_indent(int indent) {
-    for (int i = 0; i < indent; i++) printf("  ");
-}
 
-static const char *node_type_name(NodeType t) {
-    switch (t) {
-        case AST_PROGRAM:     return "Program";
-        case AST_SOURCE:      return "Source";
-        case AST_SCHEMA:      return "Schema";
-        case AST_FIELD:       return "Field";
-        case AST_FIELD_LIST:  return "FieldList";
-        case AST_ASSOCIATE:   return "Associate";
-        case AST_COMPUTE:     return "Compute";
-        case AST_JOIN:        return "Join";
-        case AST_FILTER:      return "Filter";
-        case AST_ANALYZE:     return "Analyze";
-        case AST_ANALYZE_OP:  return "AnalyzeOp";
-        case AST_EXPRESSION:  return "Expression";
-        case AST_CONDITION:   return "Condition";
-        default:              return "Unknown";
+static void indent(int n) { for (int i = 0; i < n; i++) printf("  "); }
+
+static const char *name(NodeType t) {
+    switch(t) {
+        case AST_PROGRAM: return "Program";
+        case AST_SOURCE: return "Source";
+        case AST_SCHEMA: return "Schema";
+        case AST_FIELD: return "Field";
+        case AST_ASSOCIATE: return "Associate";
+        case AST_COMPUTE: return "Compute";
+        case AST_JOIN: return "Join";
+        case AST_FILTER: return "Filter";
+        case AST_ANALYZE: return "Analyze";
+        case AST_ANALYZE_OP: return "AnalyzeOp";
+        case AST_EXPRESSION: return "Expression";
+        case AST_CONDITION: return "Condition";
+        default: return "Unknown";
     }
 }
 
-void ast_print(ASTNode *node, int indent) {
-    if (!node) return;
-
-    print_indent(indent);
-    printf("%s", node_type_name(node->type));
-    if (node->text)
-        printf(" [%s]", node->text);
+void ast_print(ASTNode *n, int d) {
+    if (!n) return;
+    indent(d);
+    printf("%s", name(n->type));
+    if (n->text) printf(" [%s]", n->text);
     printf("\n");
 
-    if (node->left)  ast_print(node->left,  indent + 1);
-    if (node->right) ast_print(node->right, indent + 1);
-    if (node->next)  ast_print(node->next,  indent);
+    ast_print(n->left, d+1);
+    ast_print(n->right, d+1);
+    ast_print(n->next, d);
 }
 

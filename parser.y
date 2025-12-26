@@ -1,14 +1,15 @@
 %{
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "ast.h"
+#include "semantic.h"
 
 extern int yylex(void);
 extern int yylineno;
 extern int yycolumn;
 
 void yyerror(const char *s);
-
 ASTNode *root = NULL;
 %}
 
@@ -37,8 +38,7 @@ ASTNode *root = NULL;
 %type <node> source_stmt schema_stmt associate_stmt compute_stmt join_stmt filter_stmt analyze_stmt
 %type <node> field_list field
 %type <node> analyze_ops analyze_op
-%type <node> expression condition
-%type <node> column_ref   /* <<< nouveau non-terminal pour src.col */
+%type <node> expression condition column_ref
 
 %%
 
@@ -50,18 +50,9 @@ program:
 ;
 
 stmt_list:
-      stmt_list stmt
-    {
-        $$ = ast_cons($1, $2);
-    }
-    | stmt
-    {
-        $$ = $1;
-    }
-    | /* vide */
-    {
-        $$ = NULL;
-    }
+      stmt_list stmt     { $$ = ast_cons($1, $2); }
+    | stmt               { $$ = $1; }
+    | /* vide */         { $$ = NULL; }
 ;
 
 stmt:
@@ -74,7 +65,7 @@ stmt:
     | analyze_stmt
 ;
 
-/* source nom "fichier.csv"; */
+/* source ident "file"; */
 source_stmt:
     SOURCE IDENT STRING_LITERAL ';'
     {
@@ -83,7 +74,7 @@ source_stmt:
     }
 ;
 
-/* schema nom { champs } */
+/* schema name { field... } */
 schema_stmt:
     SCHEMA IDENT '{' field_list '}'
     {
@@ -91,14 +82,12 @@ schema_stmt:
     }
 ;
 
-/* liste de champs */
 field_list:
-      field_list field    { $$ = ast_cons($1, $2); }
-    | field               { $$ = $1; }
-    | /* vide */          { $$ = NULL; }
+      field_list field   { $$ = ast_cons($1, $2); }
+    | field              { $$ = $1; }
+    | /* vide */         { $$ = NULL; }
 ;
 
-/* champ : nom type; */
 field:
       IDENT TYPE_INTEGER ';'
     {
@@ -126,7 +115,7 @@ associate_stmt:
     }
 ;
 
-/* compute nouvelle_colonne = expression; */
+/* compute col = expr; */
 compute_stmt:
     COMPUTE IDENT '=' expression ';'
     {
@@ -134,7 +123,7 @@ compute_stmt:
     }
 ;
 
-/* Référence de colonne : source.colonne */
+/* column reference source.col */
 column_ref:
     IDENT '.' IDENT
     {
@@ -144,18 +133,16 @@ column_ref:
     }
 ;
 
-/* expressions (arith, ident, src.col, string, …) */
+/* Expressions */
 expression:
       INUMBER
     {
-        char buf[64];
-        snprintf(buf, sizeof(buf), "%d", $1);
+        char buf[64]; snprintf(buf, sizeof(buf), "%d", $1);
         $$ = ast_create(AST_EXPRESSION, buf, NULL, NULL);
     }
     | FNUMBER
     {
-        char buf[64];
-        snprintf(buf, sizeof(buf), "%g", $1);
+        char buf[64]; snprintf(buf, sizeof(buf), "%g", $1);
         $$ = ast_create(AST_EXPRESSION, buf, NULL, NULL);
     }
     | STRING_LITERAL
@@ -166,42 +153,26 @@ expression:
     {
         $$ = ast_create(AST_EXPRESSION, $1, NULL, NULL);
     }
-    | column_ref   /* <<< on réutilise la règle dédiée */
+    | column_ref
     {
         $$ = $1;
     }
-    | '(' expression ')'
-    {
-        $$ = $2;
-    }
-    | expression '+' expression
-    {
-        $$ = ast_create(AST_EXPRESSION, "+", $1, $3);
-    }
-    | expression '-' expression
-    {
-        $$ = ast_create(AST_EXPRESSION, "-", $1, $3);
-    }
-    | expression '*' expression
-    {
-        $$ = ast_create(AST_EXPRESSION, "*", $1, $3);
-    }
-    | expression '/' expression
-    {
-        $$ = ast_create(AST_EXPRESSION, "/", $1, $3);
-    }
+    | '(' expression ')'  { $$ = $2; }
+    | expression '+' expression  { $$ = ast_create(AST_EXPRESSION, "+", $1, $3); }
+    | expression '-' expression  { $$ = ast_create(AST_EXPRESSION, "-", $1, $3); }
+    | expression '*' expression  { $$ = ast_create(AST_EXPRESSION, "*", $1, $3); }
+    | expression '/' expression  { $$ = ast_create(AST_EXPRESSION, "/", $1, $3); }
 ;
 
-/* join nom = s1.c1 inner join s2.c2; */
+/* JOIN name = a.x INNER b.y; (pas INNER JOIN !) */
 join_stmt:
-    JOIN IDENT '=' column_ref INNER JOIN column_ref ';'
+    JOIN IDENT '=' column_ref INNER column_ref ';'
     {
-        $$ = ast_create(AST_JOIN, $2, $4, $7);
+        $$ = ast_create(AST_JOIN, $2, $4, $6);
     }
-
 ;
 
-/* filter nom = src where condition; */
+/* filter name = src where expr; */
 filter_stmt:
     FILTER IDENT '=' IDENT WHERE condition ';'
     {
@@ -210,35 +181,17 @@ filter_stmt:
     }
 ;
 
-/* condition: expr op expr */
+/* conditions */
 condition:
-      expression EQ  expression
-    {
-        $$ = ast_create(AST_CONDITION, "==", $1, $3);
-    }
-    | expression NEQ expression
-    {
-        $$ = ast_create(AST_CONDITION, "!=", $1, $3);
-    }
-    | expression LT  expression
-    {
-        $$ = ast_create(AST_CONDITION, "<", $1, $3);
-    }
-    | expression GT  expression
-    {
-        $$ = ast_create(AST_CONDITION, ">", $1, $3);
-    }
-    | expression LE  expression
-    {
-        $$ = ast_create(AST_CONDITION, "<=", $1, $3);
-    }
-    | expression GE  expression
-    {
-        $$ = ast_create(AST_CONDITION, ">=", $1, $3);
-    }
+      expression EQ expression   { $$ = ast_create(AST_CONDITION, "==", $1, $3); }
+    | expression NEQ expression  { $$ = ast_create(AST_CONDITION, "!=", $1, $3); }
+    | expression LT expression   { $$ = ast_create(AST_CONDITION, "<", $1, $3); }
+    | expression GT expression   { $$ = ast_create(AST_CONDITION, ">", $1, $3); }
+    | expression LE expression   { $$ = ast_create(AST_CONDITION, "<=", $1, $3); }
+    | expression GE expression   { $$ = ast_create(AST_CONDITION, ">=", $1, $3); }
 ;
 
-/* analyze schema_name { opérations } */
+/* analyze schema { ops } */
 analyze_stmt:
     ANALYZE IDENT '{' analyze_ops '}' 
     {
@@ -247,17 +200,28 @@ analyze_stmt:
 ;
 
 analyze_ops:
-      analyze_ops analyze_op    { $$ = ast_cons($1, $2); }
-    | analyze_op                { $$ = $1; }
-    | /* vide */                { $$ = NULL; }
+      analyze_ops analyze_op   { $$ = ast_cons($1, $2); }
+    | analyze_op               { $$ = $1; }
+    | /* vide */               { $$ = NULL; }
 ;
 
-/* mean age;  summary weight; etc. */
 analyze_op:
       KW_MEAN IDENT ';'
     {
         char buf[256];
         snprintf(buf, sizeof(buf), "mean %s", $2);
+        $$ = ast_create(AST_ANALYZE_OP, buf, NULL, NULL);
+    }
+    | KW_SUMMARY IDENT ';'
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "summary %s", $2);
+        $$ = ast_create(AST_ANALYZE_OP, buf, NULL, NULL);
+    }
+    | KW_HISTOGRAM IDENT ';'
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "histogram %s", $2);
         $$ = ast_create(AST_ANALYZE_OP, buf, NULL, NULL);
     }
     | KW_MEDIAN IDENT ';'
@@ -284,18 +248,6 @@ analyze_op:
         snprintf(buf, sizeof(buf), "max %s", $2);
         $$ = ast_create(AST_ANALYZE_OP, buf, NULL, NULL);
     }
-    | KW_HISTOGRAM IDENT ';'
-    {
-        char buf[256];
-        snprintf(buf, sizeof(buf), "histogram %s", $2);
-        $$ = ast_create(AST_ANALYZE_OP, buf, NULL, NULL);
-    }
-    | KW_SUMMARY IDENT ';'
-    {
-        char buf[256];
-        snprintf(buf, sizeof(buf), "summary %s", $2);
-        $$ = ast_create(AST_ANALYZE_OP, buf, NULL, NULL);
-    }
 ;
 
 %%
@@ -303,15 +255,46 @@ analyze_op:
 void yyerror(const char *s) {
     fprintf(stderr, "[ERREUR SYNTAXE] %s (ligne %d)\n", s, yylineno);
 }
+int main(void)
+{
+    SymbolTable *symtab = symtab_create();
 
-int main(void) {
     if (yyparse() == 0) {
-        printf("Analyse syntaxique réussie\n");
-        printf("=== AST ===\n");
+        printf("Analyse syntaxique réussie\n\n=== AST ===\n");
         ast_print(root, 0);
-    } else {
-        printf("Échec de l'analyse syntaxique\n");
+
+        printf("\n=== Construction de la table des symboles ===\n");
+
+        /* On parcourt les statements */
+        ASTNode *n = root->left;
+        while (n) {
+
+            /* schema */
+            if (n->type == AST_SCHEMA) {
+                symtab_add_schema(symtab, n->text, "");
+                ASTNode *f = n->left;
+
+                while (f) {
+                    symtab_add_field(symtab, n->text, f->text, f->left->text);
+                    f = f->next;
+                }
+            }
+
+            /* associate */
+            if (n->type == AST_ASSOCIATE) {
+                symtab_associate(symtab, n->text, n->left->text);
+            }
+
+            n = n->next;
+        }
+
+        symtab_print(symtab);
+
+        printf("\n=== Analyse sémantique ===\n");
+        if (semantic_check(root, symtab) == 0)
+            printf("✓ Aucun problème sémantique détecté.\n");
+        else
+            printf("✗ Erreurs sémantiques détectées.\n");
     }
     return 0;
 }
-
