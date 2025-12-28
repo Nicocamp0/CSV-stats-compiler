@@ -18,9 +18,11 @@ symbol_table.o: symbol_table.c symbol_table.h
 semantic.o: semantic.c semantic.h
 	$(CC) $(CFLAGS) -c semantic.c
 
-analyseur: parser.tab.c lex.yy.c ast.o symbol_table.o semantic.o
-	$(CC) $(CFLAGS) parser.tab.c lex.yy.c ast.o symbol_table.o semantic.o -lfl -o analyseur
+codegen.o: codegen.c codegen.h
+	$(CC) $(CFLAGS) -c codegen.c
+
+analyseur: parser.tab.c lex.yy.c ast.o symbol_table.o semantic.o codegen.o
+	$(CC) $(CFLAGS) parser.tab.c lex.yy.c ast.o symbol_table.o semantic.o codegen.o -lfl -o analyseur
 
 clean:
-	rm -f analyseur parser.tab.c parser.tab.h lex.yy.c *.o
-
+	rm -f analyseur parser.tab.c parser.tab.h lex.yy.c *.o afstat.c afstat

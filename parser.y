@@ -4,6 +4,7 @@
 #include <string.h>
 #include "ast.h"
 #include "semantic.h"
+#include "codegen.h"
 
 extern int yylex(void);
 extern int yylineno;
@@ -172,7 +173,7 @@ join_stmt:
     }
 ;
 
-/* filter name = src where expr; */
+/* filter name = src where condition; */
 filter_stmt:
     FILTER IDENT '=' IDENT WHERE condition ';'
     {
@@ -191,9 +192,9 @@ condition:
     | expression GE expression   { $$ = ast_create(AST_CONDITION, ">=", $1, $3); }
 ;
 
-/* analyze schema { ops } */
+/* analyze dataset { ops } */
 analyze_stmt:
-    ANALYZE IDENT '{' analyze_ops '}' 
+    ANALYZE IDENT '{' analyze_ops '}'
     {
         $$ = ast_create(AST_ANALYZE, $2, $4, NULL);
     }
@@ -255,6 +256,7 @@ analyze_op:
 void yyerror(const char *s) {
     fprintf(stderr, "[ERREUR SYNTAXE] %s (ligne %d)\n", s, yylineno);
 }
+
 int main(void)
 {
     SymbolTable *symtab = symtab_create();
@@ -265,22 +267,19 @@ int main(void)
 
         printf("\n=== Construction de la table des symboles ===\n");
 
-        /* On parcourt les statements */
+        /* 1ère passe : schemas + fields + associate */
         ASTNode *n = root->left;
         while (n) {
 
-            /* schema */
             if (n->type == AST_SCHEMA) {
                 symtab_add_schema(symtab, n->text, "");
                 ASTNode *f = n->left;
-
                 while (f) {
                     symtab_add_field(symtab, n->text, f->text, f->left->text);
                     f = f->next;
                 }
             }
 
-            /* associate */
             if (n->type == AST_ASSOCIATE) {
                 symtab_associate(symtab, n->text, n->left->text);
             }
@@ -290,69 +289,66 @@ int main(void)
 
         symtab_print(symtab);
 
+        /* 2e passe : datasets virtuels (JOIN/FILTER) */
+        ASTNode *m = root->left;
+        while (m) {
 
-        // 2e passe : construire les datasets virtuels (join/filter) et colonnes calculées (compute)
+            if (m->type == AST_JOIN) {
+                char s1[128], c1[128], s2[128], c2[128];
 
+                /* m->left->text  = "src.col" */
+                /* m->right->text = "src.col" */
+                sscanf(m->left->text,  "%127[^.].%127[^ \t\r\n;]", s1, c1);
+                sscanf(m->right->text, "%127[^.].%127[^ \t\r\n;]", s2, c2);
 
-ASTNode *m = root->left;
-while (m) {
+                Schema *A = symtab_get_schema_by_source(symtab, s1);
+                Schema *B = symtab_get_schema_by_source(symtab, s2);
 
-    if (m->type == AST_ASSOCIATE) {
-        // par défaut, contexte = nom du schema
-        
-    }
+                if (A && B) {
+                    Schema *J = symtab_add_empty_schema(symtab, m->text);
 
-    if (m->type == AST_JOIN) {
-        // join J = s1.c1 inner s2.c2
-        // m->left->text  = "s1.c1"
-        // m->right->text = "s2.c2"
-        char s1[128], c1[128], s2[128], c2[128];
-        sscanf(m->left->text,  "%127[^.].%127s", s1, c1);
-        sscanf(m->right->text, "%127[^.].%127s", s2, c2);
+                    for (int i = 0; i < A->column_count; i++)
+                        schema_add_column(J, A->columns[i].name, A->columns[i].type);
 
-        Schema *A = symtab_get_schema_by_source(symtab, s1);
-        Schema *B = symtab_get_schema_by_source(symtab, s2);
+                    for (int i = 0; i < B->column_count; i++)
+                        schema_add_column(J, B->columns[i].name, B->columns[i].type);
+                }
+            }
 
-        if (A && B) {
-            Schema *J = symtab_add_empty_schema(symtab, m->text);
-            // colonnes = union (détecter collisions)
-            for (int i = 0; i < A->column_count; i++)
-                schema_add_column(J, A->columns[i].name, A->columns[i].type);
-            for (int i = 0; i < B->column_count; i++)
-                schema_add_column(J, B->columns[i].name, B->columns[i].type);
+            if (m->type == AST_FILTER) {
+                const char *src = m->left->text;
+
+                Schema *base = symtab_get_schema(symtab, src);
+                if (!base) base = symtab_get_schema_by_source(symtab, src);
+
+                if (base) {
+                    symtab_clone_schema(symtab, m->text, base);
+                }
+            }
+
+            /* AST_COMPUTE : pas encore utilisé côté symtab (sera fait plus tard si besoin) */
+
+            m = m->next;
         }
-       
-    }
 
-    if (m->type == AST_FILTER) {
-        // filter F = SRC where ...
-        const char *src = m->left->text;
-
-        Schema *base = symtab_get_schema(symtab, src);
-        if (!base) base = symtab_get_schema_by_source(symtab, src);
-
-        if (base) symtab_clone_schema(symtab, m->text, base);
-
-        
-    }
-
-    if (m->type == AST_COMPUTE) {
-        // compute newcol = expr;
-        // on ajoute plus tard après avoir inféré le type dans semantic_check
-        // ici juste: current_dataset reste
-    }
-
-    m = m->next;
-}
-printf("\n=== TABLE DES SYMBOLES (après JOIN/FILTER) ===\n");
-symtab_print(symtab);
-
+        printf("\n=== TABLE DES SYMBOLES (après JOIN/FILTER) ===\n");
+        symtab_print(symtab);
 
         printf("\n=== Analyse sémantique ===\n");
-        if (semantic_check(root, symtab) == 0)
+        if (semantic_check(root, symtab) == 0) {
             printf("✓ Aucun problème sémantique détecté.\n");
-        else
+
+            printf("\n=== Génération du code C ===\n");
+            if (generate_c(root, symtab, "afstat.c") == 0) {
+                printf("✓ Fichier généré : afstat.c\n");
+            } else {
+                printf("✗ Échec génération C.\n");
+            }
+
+        } else {
             printf("✗ Erreurs sémantiques détectées.\n");
+        }
     }
+
     return 0;
 }
