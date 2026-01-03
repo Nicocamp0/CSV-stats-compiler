@@ -9,6 +9,12 @@ SymbolTable* symtab_create() {
     return t;
 }
 
+void symtab_add_source(SymbolTable *t, const char *name) {
+    (void)t;
+    (void)name;
+}
+
+
 void symtab_add_schema(SymbolTable *t, const char *schema, const char *source) {
     Schema *s = &t->schemas[t->schema_count++];
     strcpy(s->name, schema);
@@ -96,3 +102,5 @@ Schema *symtab_clone_schema(SymbolTable *t, const char *new_name, Schema *base) 
     }
     return s;
 }
+
+

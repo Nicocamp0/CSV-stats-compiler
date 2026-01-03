@@ -3,6 +3,12 @@ CFLAGS = -Wall -Wextra -g
 
 all: analyseur
 
+main.o: main.c
+	$(CC) $(CFLAGS) -c main.c
+
+analyseur: parser.tab.c lex.yy.c main.o ast.o symbol_table.o semantic.o codegen.o
+	$(CC) $(CFLAGS) parser.tab.c lex.yy.c main.o ast.o symbol_table.o semantic.o codegen.o -lfl -o analyseur
+
 parser.tab.c parser.tab.h: parser.y
 	bison -d parser.y
 
@@ -20,9 +26,6 @@ semantic.o: semantic.c semantic.h
 
 codegen.o: codegen.c codegen.h
 	$(CC) $(CFLAGS) -c codegen.c
-
-analyseur: parser.tab.c lex.yy.c ast.o symbol_table.o semantic.o codegen.o
-	$(CC) $(CFLAGS) parser.tab.c lex.yy.c ast.o symbol_table.o semantic.o codegen.o -lfl -o analyseur
 
 clean:
 	rm -f analyseur parser.tab.c parser.tab.h lex.yy.c *.o afstat.c afstat
