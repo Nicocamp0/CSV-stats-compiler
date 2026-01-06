@@ -40,6 +40,23 @@ static const char *lookup_file(SourceFile sources[], int n, const char *source_n
     return NULL;
 }
 
+typedef struct {
+    char name[64];     // nom colonne calculée (ex: bmi)
+    ASTNode *expr;     // AST de l’expression
+} ComputedDef;
+
+static ComputedDef g_computed[128];
+static int g_computed_n = 0;
+
+static void add_computed_def(const char *name, ASTNode *expr) {
+    if (g_computed_n >= 128) return;
+    strncpy(g_computed[g_computed_n].name, name, sizeof(g_computed[g_computed_n].name)-1);
+    g_computed[g_computed_n].name[sizeof(g_computed[g_computed_n].name)-1] = '\0';
+    g_computed[g_computed_n].expr = expr;
+    g_computed_n++;
+}
+
+
 /* -------------------------
    C helpers emitted in afstat.c
    ------------------------- */
@@ -84,6 +101,33 @@ static void emit_helpers(FILE *out) {
         "  return (da > db) - (da < db);\n"
         "}\n\n"
       );
+    fprintf(out,
+        "typedef double (*ComputeFn)(const char *header, char *cols[], int n);\n"
+        "typedef struct { const char *name; ComputeFn fn; } ComputeEntry;\n"
+        "static ComputeEntry g_comp[128];\n"
+        "static int g_comp_n = 0;\n"
+        "static void register_comp(const char *name, ComputeFn fn) {\n"
+        "  if (g_comp_n < 128) { g_comp[g_comp_n].name = name; g_comp[g_comp_n].fn = fn; g_comp_n++; }\n"
+        "}\n"
+        "static ComputeFn find_comp(const char *name) {\n"
+        "  for (int i=0;i<g_comp_n;i++) if (strcmp(g_comp[i].name,name)==0) return g_comp[i].fn;\n"
+        "  return NULL;\n"
+        "}\n"
+    );
+    fprintf(out,
+        "static int get_value(const char *header, char *cols[], int n, const char *colname, double *outv) {\n"
+        "  int idx = find_col_index(header, colname);\n"
+        "  if (idx >= 0) {\n"
+        "    if (idx < n && cols[idx] && cols[idx][0] != '\\0') { *outv = atof(cols[idx]); return 1; }\n"
+        "    return 0;\n"
+        "  }\n"
+        "  ComputeFn fn = find_comp(colname);\n"
+        "  if (fn) { *outv = fn(header, cols, n); return 1; }\n"
+        "  return -1; // introuvable\n"
+        "}\n"
+      );
+      
+      
       
 }
 
@@ -107,109 +151,172 @@ static void parse_analyze_op(const char *text, char *op, size_t op_sz, char *col
     sscanf(text, "%31s %127s", op, col);
 }
 
+static void emit_expr_as_c(FILE *out, ASTNode *e) {
+    if (!e) { fprintf(out, "0.0"); return; }
+
+    // feuilles: numbers / ident / string -> on supporte surtout number + ident
+    if (e->left == NULL && e->right == NULL) {
+        // Si c’est un opérateur stocké comme texte "+", etc, ça arrivera plutôt en non-feuille
+        // Ici on suppose: e->text contient soit un nombre soit un ident
+        // Heuristique simple: si ça commence par chiffre ou '-' -> nombre
+        const char *t = e->text ? e->text : "0";
+        if ((t[0] >= '0' && t[0] <= '9') || t[0] == '-' ) {
+            fprintf(out, "%s", t);
+        } else {
+            // ident: on récupère via get_value(...)
+            // On génère: ({ double __tmp; int __r=get_value(header,cols,n,"age",&__tmp); if(__r<=0){return 0.0;} __tmp; })
+            fprintf(out,
+              "({ double __tmp=0.0; int __r=get_value(header, cols, n, \"%s\", &__tmp);"
+              " if(__r<=0){ return 0.0; } __tmp; })",
+              t
+            );
+        }
+        return;
+    }
+
+    // noeud opérateur: e->text = "+", "-", "*", "/"
+    fprintf(out, "(");
+    emit_expr_as_c(out, e->left);
+    fprintf(out, " %s ", e->text ? e->text : "+");
+    emit_expr_as_c(out, e->right);
+    fprintf(out, ")");
+}
+
+static void emit_computed_functions(FILE *out) {
+    for (int i = 0; i < g_computed_n; i++) {
+        const char *name = g_computed[i].name;
+
+        fprintf(out, "static double comp_%s(const char *header, char *cols[], int n) {\n", name);
+        fprintf(out, "  (void)header; (void)cols; (void)n;\n");
+        fprintf(out, "  return ");
+        emit_expr_as_c(out, g_computed[i].expr);
+        fprintf(out, ";\n}\n\n");
+    }
+}
+
+static void emit_register_computed(FILE *out) {
+    for (int i = 0; i < g_computed_n; i++) {
+        fprintf(out, "  register_comp(\"%s\", comp_%s);\n", g_computed[i].name, g_computed[i].name);
+    }
+}
+
+static void collect_computes(ASTNode *n) {
+    if (!n) return;
+    if (n->type == AST_COMPUTE) {
+        // d’après ton parser: AST_COMPUTE, text=$2 (nom), left=$4 (expr)
+        add_computed_def(n->text, n->left);
+    }
+    collect_computes(n->left);
+    collect_computes(n->right);
+    collect_computes(n->next);
+}
+
+
 /* -------------------------
    Emit real computations in C
    ------------------------- */
 
-   static void emit_real_min(FILE *out, const char *csv_file, const char *col) {
+static void emit_real_min(FILE *out, const char *csv_file, const char *col) {
     fprintf(out,
-        "{\n"
-        "  FILE *f = fopen(\"%s\", \"r\");\n"
-        "  if (!f) { perror(\"fopen\"); return 1; }\n"
-        "  char line[MAX_LINE];\n"
-        "  if (!fgets(line, sizeof(line), f)) { fclose(f); return 1; }\n"
-        "  int idx = find_col_index(line, \"%s\");\n"
-        "  if (idx < 0) { printf(\"colonne introuvable: %s\\n\"); fclose(f); return 1; }\n"
-        "  long nobs = 0;\n"
-        "  double minv = 0.0;\n"
-        "  while (fgets(line, sizeof(line), f)) {\n"
-        "    char tmp[MAX_LINE];\n"
-        "    strncpy(tmp, line, sizeof(tmp)); tmp[sizeof(tmp)-1] = '\\0';\n"
-        "    char *cols[MAX_COLS];\n"
-        "    int n = split_csv_line(tmp, cols, MAX_COLS);\n"
-        "    if (idx < n && cols[idx][0] != '\\0') {\n"
-        "      double x = atof(cols[idx]);\n"
-        "      if (nobs == 0 || x < minv) minv = x;\n"
-        "      nobs++;\n"
+        "  {\n"
+        "    FILE *f = fopen(\"%s\", \"r\");\n"
+        "    if (!f) { perror(\"fopen\"); return 1; }\n"
+        "    char line[MAX_LINE];\n"
+        "    if (!fgets(line, sizeof(line), f)) { fclose(f); return 1; }\n"
+        "    char header_line[MAX_LINE];\n"
+        "    strncpy(header_line, line, sizeof(header_line)); header_line[sizeof(header_line)-1] = '\\0';\n"
+        "    long nobs = 0;\n"
+        "    double minv = 0.0;\n"
+        "    while (fgets(line, sizeof(line), f)) {\n"
+        "      char tmp[MAX_LINE];\n"
+        "      strncpy(tmp, line, sizeof(tmp)); tmp[sizeof(tmp)-1] = '\\0';\n"
+        "      char *cols[MAX_COLS];\n"
+        "      int n = split_csv_line(tmp, cols, MAX_COLS);\n"
+        "      double x = 0.0;\n"
+        "      int r = get_value(header_line, cols, n, \"%s\", &x);\n"
+        "      if (r == -1) { printf(\"colonne introuvable: %s\\n\"); fclose(f); return 1; }\n"
+        "      if (r == 1) {\n"
+        "        if (nobs == 0 || x < minv) minv = x;\n"
+        "        nobs++;\n"
+        "      }\n"
         "    }\n"
-        "  }\n"
-        "  fclose(f);\n"
-        "  if (nobs == 0) printf(\"min(%s) = (no data)\\n\");\n"
-        "  else printf(\"min(%s) = %%f\\n\", minv);\n"
-        "}\n",
-        csv_file, col, col, col
+        "    fclose(f);\n"
+        "    if (nobs == 0) printf(\"min(%s) = (no data)\\n\");\n"
+        "    else printf(\"min(%s) = %%f\\n\", minv);\n"
+        "  }\n",
+        csv_file, col, col, col, col
     );
 }
 
 
 static void emit_real_max(FILE *out, const char *csv_file, const char *col) {
     fprintf(out,
-        "{\n"
-        "  FILE *f = fopen(\"%s\", \"r\");\n"
-        "  if (!f) { perror(\"fopen\"); return 1; }\n"
-        "  char line[MAX_LINE];\n"
-        "  if (!fgets(line, sizeof(line), f)) { fclose(f); return 1; }\n"
-        "  int idx = find_col_index(line, \"%s\");\n"
-        "  if (idx < 0) { printf(\"colonne introuvable: %s\\n\"); fclose(f); return 1; }\n"
-        "  long nobs = 0;\n"
-        "  double maxv = 0.0;\n"
-        "  while (fgets(line, sizeof(line), f)) {\n"
-        "    char tmp[MAX_LINE];\n"
-        "    strncpy(tmp, line, sizeof(tmp)); tmp[sizeof(tmp)-1] = '\\0';\n"
-        "    char *cols[MAX_COLS];\n"
-        "    int n = split_csv_line(tmp, cols, MAX_COLS);\n"
-        "    if (idx < n && cols[idx][0] != '\\0') {\n"
-        "      double x = atof(cols[idx]);\n"
-        "      if (nobs == 0 || x > maxv) maxv = x;\n"
-        "      nobs++;\n"
+        "  {\n"
+        "    FILE *f = fopen(\"%s\", \"r\");\n"
+        "    if (!f) { perror(\"fopen\"); return 1; }\n"
+        "    char line[MAX_LINE];\n"
+        "    if (!fgets(line, sizeof(line), f)) { fclose(f); return 1; }\n"
+        "    char header_line[MAX_LINE];\n"
+        "    strncpy(header_line, line, sizeof(header_line)); header_line[sizeof(header_line)-1] = '\\0';\n"
+        "    long nobs = 0;\n"
+        "    double maxv = 0.0;\n"
+        "    while (fgets(line, sizeof(line), f)) {\n"
+        "      char tmp[MAX_LINE];\n"
+        "      strncpy(tmp, line, sizeof(tmp)); tmp[sizeof(tmp)-1] = '\\0';\n"
+        "      char *cols[MAX_COLS];\n"
+        "      int n = split_csv_line(tmp, cols, MAX_COLS);\n"
+        "      double x = 0.0;\n"
+        "      int r = get_value(header_line, cols, n, \"%s\", &x);\n"
+        "      if (r == -1) { printf(\"colonne introuvable: %s\\n\"); fclose(f); return 1; }\n"
+        "      if (r == 1) {\n"
+        "        if (nobs == 0 || x > maxv) maxv = x;\n"
+        "        nobs++;\n"
+        "      }\n"
         "    }\n"
-        "  }\n"
-        "  fclose(f);\n"
-        "  if (nobs == 0) printf(\"max(%s) = (no data)\\n\");\n"
-        "  else printf(\"max(%s) = %%f\\n\", maxv);\n"
-        "}\n",
-        csv_file, col, col, col
+        "    fclose(f);\n"
+        "    if (nobs == 0) printf(\"max(%s) = (no data)\\n\");\n"
+        "    else printf(\"max(%s) = %%f\\n\", maxv);\n"
+        "  }\n",
+        csv_file, col, col, col, col
     );
 }
 
 
 static void emit_real_stddev(FILE *out, const char *csv_file, const char *col) {
     fprintf(out,
-        "{\n"
-        "  FILE *f = fopen(\"%s\", \"r\");\n"
-        "  if (!f) { perror(\"fopen\"); return 1; }\n"
-        "  char line[MAX_LINE];\n"
-        "  if (!fgets(line, sizeof(line), f)) { fclose(f); return 1; }\n"
-        "  int idx = find_col_index(line, \"%s\");\n"
-        "  if (idx < 0) { printf(\"colonne introuvable: %s\\n\"); fclose(f); return 1; }\n"
-        "  long nobs = 0;\n"
-        "  double mean = 0.0, M2 = 0.0;\n"
-        "  while (fgets(line, sizeof(line), f)) {\n"
-        "    char tmp[MAX_LINE];\n"
-        "    strncpy(tmp, line, sizeof(tmp)); tmp[sizeof(tmp)-1] = '\\0';\n"
-        "    char *cols[MAX_COLS];\n"
-        "    int n = split_csv_line(tmp, cols, MAX_COLS);\n"
-        "    if (idx < n && cols[idx][0] != '\\0') {\n"
-        "      double x = atof(cols[idx]);\n"
-        "      nobs++;\n"
-        "      double delta = x - mean;\n"
-        "      mean += delta / (double)nobs;\n"
-        "      double delta2 = x - mean;\n"
-        "      M2 += delta * delta2;\n"
+        "  {\n"
+        "    FILE *f = fopen(\"%s\", \"r\");\n"
+        "    if (!f) { perror(\"fopen\"); return 1; }\n"
+        "    char line[MAX_LINE];\n"
+        "    if (!fgets(line, sizeof(line), f)) { fclose(f); return 1; }\n"
+        "    char header_line[MAX_LINE];\n"
+        "    strncpy(header_line, line, sizeof(header_line)); header_line[sizeof(header_line)-1] = '\\0';\n"
+        "    long nobs = 0;\n"
+        "    double mean = 0.0, M2 = 0.0;\n"
+        "    while (fgets(line, sizeof(line), f)) {\n"
+        "      char tmp[MAX_LINE];\n"
+        "      strncpy(tmp, line, sizeof(tmp)); tmp[sizeof(tmp)-1] = '\\0';\n"
+        "      char *cols[MAX_COLS];\n"
+        "      int n = split_csv_line(tmp, cols, MAX_COLS);\n"
+        "      double x = 0.0;\n"
+        "      int r = get_value(header_line, cols, n, \"%s\", &x);\n"
+        "      if (r == -1) { printf(\"colonne introuvable: %s\\n\"); fclose(f); return 1; }\n"
+        "      if (r == 1) {\n"
+        "        nobs++;\n"
+        "        double delta = x - mean;\n"
+        "        mean += delta / (double)nobs;\n"
+        "        double delta2 = x - mean;\n"
+        "        M2 += delta * delta2;\n"
+        "      }\n"
         "    }\n"
-        "  }\n"
-        "  fclose(f);\n"
-        "  double var = (nobs > 1 ? M2 / (double)(nobs - 1) : 0.0);\n"
-        "  double stddev = sqrt(var);\n"
-        "  printf(\"std_dev(%s) = %%f\\n\", stddev);\n"
-        "}\n",
+        "    fclose(f);\n"
+        "    double var = (nobs > 1 ? M2 / (double)(nobs - 1) : 0.0);\n"
+        "    double stddev = sqrt(var);\n"
+        "    printf(\"std_dev(%s) = %%f\\n\", stddev);\n"
+        "  }\n",
         csv_file, col, col, col
     );
 }
-
-
-
-
 
 
 static void emit_real_mean(FILE *out, const char *csv_file, const char *col) {
@@ -219,18 +326,18 @@ static void emit_real_mean(FILE *out, const char *csv_file, const char *col) {
         "    if (!f) { perror(\"fopen\"); return 1; }\n"
         "    char line[MAX_LINE];\n"
         "    if (!fgets(line, sizeof(line), f)) { fclose(f); return 1; }\n"
-        "    int idx = find_col_index(line, \"%s\");\n"
-        "    if (idx < 0) { printf(\"colonne introuvable: %s\\n\"); fclose(f); return 1; }\n"
+        "    char header_line[MAX_LINE];\n"
+        "    strncpy(header_line, line, sizeof(header_line)); header_line[sizeof(header_line)-1] = '\\0';\n"
         "    double sum = 0.0; long count = 0;\n"
         "    while (fgets(line, sizeof(line), f)) {\n"
         "      char tmp[MAX_LINE];\n"
         "      strncpy(tmp, line, sizeof(tmp)); tmp[sizeof(tmp)-1] = '\\0';\n"
         "      char *cols[MAX_COLS];\n"
         "      int n = split_csv_line(tmp, cols, MAX_COLS);\n"
-        "      if (idx < n && cols[idx][0] != '\\0') {\n"
-        "        sum += atof(cols[idx]);\n"
-        "        count++;\n"
-        "      }\n"
+        "      double x = 0.0;\n"
+        "      int r = get_value(header_line, cols, n, \"%s\", &x);\n"
+        "      if (r == -1) { printf(\"colonne introuvable: %s\\n\"); fclose(f); return 1; }\n"
+        "      if (r == 1) { sum += x; count++; }\n"
         "    }\n"
         "    fclose(f);\n"
         "    printf(\"mean(%s) = %%f\\n\", (count > 0 ? sum/(double)count : 0.0));\n"
@@ -239,6 +346,7 @@ static void emit_real_mean(FILE *out, const char *csv_file, const char *col) {
     );
 }
 
+
 static void emit_real_summary(FILE *out, const char *csv_file, const char *col) {
     fprintf(out,
         "  {\n"
@@ -246,8 +354,8 @@ static void emit_real_summary(FILE *out, const char *csv_file, const char *col) 
         "    if (!f) { perror(\"fopen\"); return 1; }\n"
         "    char line[MAX_LINE];\n"
         "    if (!fgets(line, sizeof(line), f)) { fclose(f); return 1; }\n"
-        "    int idx = find_col_index(line, \"%s\");\n"
-        "    if (idx < 0) { printf(\"colonne introuvable: %s\\n\"); fclose(f); return 1; }\n"
+        "    char header_line[MAX_LINE];\n"
+        "    strncpy(header_line, line, sizeof(header_line)); header_line[sizeof(header_line)-1] = '\\0';\n"
         "    long nobs = 0;\n"
         "    double mean = 0.0, M2 = 0.0;\n"
         "    double minv = 0.0, maxv = 0.0;\n"
@@ -256,8 +364,10 @@ static void emit_real_summary(FILE *out, const char *csv_file, const char *col) 
         "      strncpy(tmp, line, sizeof(tmp)); tmp[sizeof(tmp)-1] = '\\0';\n"
         "      char *cols[MAX_COLS];\n"
         "      int n = split_csv_line(tmp, cols, MAX_COLS);\n"
-        "      if (idx < n && cols[idx][0] != '\\0') {\n"
-        "        double x = atof(cols[idx]);\n"
+        "      double x = 0.0;\n"
+        "      int r = get_value(header_line, cols, n, \"%s\", &x);\n"
+        "      if (r == -1) { printf(\"colonne introuvable: %s\\n\"); fclose(f); return 1; }\n"
+        "      if (r == 1) {\n"
         "        if (nobs == 0) { minv = maxv = x; }\n"
         "        if (x < minv) minv = x;\n"
         "        if (x > maxv) maxv = x;\n"
@@ -269,13 +379,17 @@ static void emit_real_summary(FILE *out, const char *csv_file, const char *col) 
         "      }\n"
         "    }\n"
         "    fclose(f);\n"
-        "    double var = (nobs > 1 ? M2 / (double)(nobs - 1) : 0.0);\n"
-        "    double stddev = sqrt(var);\n"
-        "    printf(\"summary(%s): min=%%f max=%%f mean=%%f std_dev=%%f\\n\", minv, maxv, mean, stddev);\n"
+        "    if (nobs == 0) { printf(\"summary(%s): (no data)\\n\"); }\n"
+        "    else {\n"
+        "      double var = (nobs > 1 ? M2 / (double)(nobs - 1) : 0.0);\n"
+        "      double stddev = sqrt(var);\n"
+        "      printf(\"summary(%s): min=%%f max=%%f mean=%%f std_dev=%%f\\n\", minv, maxv, mean, stddev);\n"
+        "    }\n"
         "  }\n",
-        csv_file, col, col, col
+        csv_file, col, col, col, col
     );
 }
+
 
 static void emit_real_histogram(FILE *out, const char *csv_file, const char *col) {
     fprintf(out,
@@ -294,13 +408,10 @@ static void emit_real_histogram(FILE *out, const char *csv_file, const char *col
         "      strncpy(tmp, line, sizeof(tmp)); tmp[sizeof(tmp)-1] = '\\0';\n"
         "      char *cols[MAX_COLS];\n"
         "      int n = split_csv_line(tmp, cols, MAX_COLS);\n"
-        "      if (idx < n) {\n"
+        "      if (idx < n && cols[idx]) {\n"
         "        const char *v = cols[idx];\n"
-        "        if (!v) continue;\n"
         "        int found = -1;\n"
-        "        for (int i = 0; i < k; i++) {\n"
-        "          if (strcmp(cats[i], v) == 0) { found = i; break; }\n"
-        "        }\n"
+        "        for (int i = 0; i < k; i++) if (strcmp(cats[i], v) == 0) { found = i; break; }\n"
         "        if (found == -1) {\n"
         "          if (k < MAX_CATS) {\n"
         "            strncpy(cats[k], v, MAX_STR);\n"
@@ -315,59 +426,60 @@ static void emit_real_histogram(FILE *out, const char *csv_file, const char *col
         "    }\n"
         "    fclose(f);\n"
         "    printf(\"histogram(%s):\\n\");\n"
-        "    for (int i = 0; i < k; i++) {\n"
-        "      printf(\"  %%s: %%d\\n\", cats[i], counts[i]);\n"
-
-        "    }\n"
+        "    for (int i = 0; i < k; i++) printf(\"  %%s: %%d\\n\", cats[i], counts[i]);\n"
         "  }\n",
         csv_file, col, col, col
     );
 }
 
 
+
 static void emit_real_median(FILE *out, const char *csv_file, const char *col) {
     fprintf(out,
-        "{\n"
-        "  FILE *f = fopen(\"%s\", \"r\");\n"
-        "  if (!f) { perror(\"fopen\"); return 1; }\n"
-        "  char line[MAX_LINE];\n"
-        "  if (!fgets(line, sizeof(line), f)) { fclose(f); return 1; }\n"
-        "  int idx = find_col_index(line, \"%s\");\n"
-        "  if (idx < 0) { printf(\"colonne introuvable: %s\\n\"); fclose(f); return 1; }\n"
-        "  size_t cap = 128;\n"
-        "  size_t nobs = 0;\n"
-        "  double *vals = (double*)malloc(cap * sizeof(double));\n"
-        "  if (!vals) { fclose(f); return 1; }\n"
-        "  while (fgets(line, sizeof(line), f)) {\n"
-        "    char tmp[MAX_LINE];\n"
-        "    strncpy(tmp, line, sizeof(tmp)); tmp[sizeof(tmp)-1] = '\\0';\n"
-        "    char *cols[MAX_COLS];\n"
-        "    int n = split_csv_line(tmp, cols, MAX_COLS);\n"
-        "    if (idx < n && cols[idx][0] != '\\0') {\n"
-        "      double x = atof(cols[idx]);\n"
-        "      if (nobs == cap) {\n"
-        "        cap *= 2;\n"
-        "        double *nv = (double*)realloc(vals, cap * sizeof(double));\n"
-        "        if (!nv) { free(vals); fclose(f); return 1; }\n"
-        "        vals = nv;\n"
+        "  {\n"
+        "    FILE *f = fopen(\"%s\", \"r\");\n"
+        "    if (!f) { perror(\"fopen\"); return 1; }\n"
+        "    char line[MAX_LINE];\n"
+        "    if (!fgets(line, sizeof(line), f)) { fclose(f); return 1; }\n"
+        "    char header_line[MAX_LINE];\n"
+        "    strncpy(header_line, line, sizeof(header_line)); header_line[sizeof(header_line)-1] = '\\0';\n"
+        "    size_t cap = 128;\n"
+        "    size_t nobs = 0;\n"
+        "    double *vals = (double*)malloc(cap * sizeof(double));\n"
+        "    if (!vals) { fclose(f); return 1; }\n"
+        "    while (fgets(line, sizeof(line), f)) {\n"
+        "      char tmp[MAX_LINE];\n"
+        "      strncpy(tmp, line, sizeof(tmp)); tmp[sizeof(tmp)-1] = '\\0';\n"
+        "      char *cols[MAX_COLS];\n"
+        "      int n = split_csv_line(tmp, cols, MAX_COLS);\n"
+        "      double x = 0.0;\n"
+        "      int r = get_value(header_line, cols, n, \"%s\", &x);\n"
+        "      if (r == -1) { printf(\"colonne introuvable: %s\\n\"); free(vals); fclose(f); return 1; }\n"
+        "      if (r == 1) {\n"
+        "        if (nobs == cap) {\n"
+        "          cap *= 2;\n"
+        "          double *nv = (double*)realloc(vals, cap * sizeof(double));\n"
+        "          if (!nv) { free(vals); fclose(f); return 1; }\n"
+        "          vals = nv;\n"
+        "        }\n"
+        "        vals[nobs++] = x;\n"
         "      }\n"
-        "      vals[nobs++] = x;\n"
         "    }\n"
-        "  }\n"
-        "  fclose(f);\n"
-        "  if (nobs == 0) { printf(\"median(%s) = (no data)\\n\"); free(vals); }\n"
-        "  else {\n"
-        "    qsort(vals, nobs, sizeof(double), cmp_double);\n"
-        "    double med;\n"
-        "    if (nobs %% 2 == 1) med = vals[nobs/2];\n"
-        "    else med = 0.5 * (vals[nobs/2 - 1] + vals[nobs/2]);\n"
-        "    printf(\"median(%s) = %%f\\n\", med);\n"
-        "    free(vals);\n"
-        "  }\n"
-        "}\n",
-        csv_file, col, col, col
+        "    fclose(f);\n"
+        "    if (nobs == 0) { printf(\"median(%s) = (no data)\\n\"); free(vals); }\n"
+        "    else {\n"
+        "      qsort(vals, nobs, sizeof(double), cmp_double);\n"
+        "      double med;\n"
+        "      if (nobs %% 2 == 1) med = vals[nobs/2];\n"
+        "      else med = 0.5 * (vals[nobs/2 - 1] + vals[nobs/2]);\n"
+        "      printf(\"median(%s) = %%f\\n\", med);\n"
+        "      free(vals);\n"
+        "    }\n"
+        "  }\n",
+        csv_file, col, col, col, col
     );
 }
+
 
 
 /* Fallback placeholder */
@@ -475,6 +587,8 @@ int generate_c(ASTNode *root, SymbolTable *symtab, const char *out_c_path)
 {
     g_nodes = g_analyzes = g_sources = 0;
     scan_ast(root);
+    g_computed_n = 0;
+    collect_computes(root);
     fprintf(stderr, "[codegen] nodes=%d sources=%d analyzes=%d root_type=%d\n",g_nodes, g_sources, g_analyzes, root->type);
 
     if (!root || !symtab || !out_c_path) return 1;
@@ -490,8 +604,10 @@ int generate_c(ASTNode *root, SymbolTable *symtab, const char *out_c_path)
     }
 
     emit_helpers(out);
+    emit_computed_functions(out);
     emit_main_begin(out);
-    emit_analyzes_recursive(out,root, symtab, sources, sources_n);
+    emit_register_computed(out);
+    emit_analyzes_recursive(out, root, symtab, sources, sources_n);
     emit_main_end(out);
     fclose(out);
     return 0;
