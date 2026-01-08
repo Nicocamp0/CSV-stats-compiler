@@ -105,6 +105,32 @@ static void check_join(ASTNode *node, SymbolTable *symtab) {
     }
 }
 
+static void check_filter(ASTNode *node, SymbolTable *symtab) {
+    (void)symtab;
+    if (!node->right || node->right->type != AST_CONDITION) {
+        sem_error("filter: condition invalide");
+        return;
+    }
+
+    ASTNode *lhs = node->right->left;
+    ASTNode *rhs = node->right->right;
+    const char *op = node->right->text ? node->right->text : "";
+
+    if (!lhs || !rhs || !lhs->text || !rhs->text) {
+        sem_error("filter: condition incomplète");
+        return;
+    }
+    const char *t = get_column_type(lhs->text, symtab);
+    if (t) {
+        // opérateurs numériques
+        int is_num_op = (!strcmp(op, ">") || !strcmp(op, "<") || !strcmp(op, ">=") || !strcmp(op, "<="));
+        if (is_num_op && !strcmp(t, "string")) {
+            sem_error("filter: comparaison numérique sur colonne string");
+        }
+    }
+}
+
+
 static void check_analyze(ASTNode *node, SymbolTable *symtab) {
     const char *name = node->text;
 
@@ -167,7 +193,7 @@ int semantic_check(ASTNode *root, SymbolTable *symtab) {
             
 
             case AST_FILTER:
-                // TODO: ajouter plus tard
+            check_filter(node, symtab);
                 break;
 
             default:
