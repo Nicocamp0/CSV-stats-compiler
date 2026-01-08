@@ -28,4 +28,4 @@ codegen.o: codegen.c codegen.h
 	$(CC) $(CFLAGS) -c codegen.c
 
 clean:
-	rm -f analyseur parser.tab.c parser.tab.h lex.yy.c *.o afstat.c afstat
+	rm -f analyseur parser.tab.c parser.tab.h lex.yy.c *.o afstat.c afstat out.c out __af*

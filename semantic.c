@@ -37,16 +37,20 @@ static void sem_error(const char *msg) {
     error_count++;
 }
 
-/* Obtenir le type d'une colonne ex: patients.age */
 static const char *get_column_type(const char *fullcol, SymbolTable *symtab) {
-    char src[128], col[128];
-    if (sscanf(fullcol, "%127[^.].%127s", src, col) != 2) return NULL;
+    char left[128], col[128];
+    if (sscanf(fullcol, "%127[^.].%127s", left, col) != 2) return NULL;
 
-    Schema *schema = symtab_get_schema_by_source(symtab, src);
+    // Cas A: "schema.col"
+    Schema *schema = symtab_get_schema(symtab, left);
+    if (schema) return schema_get_col_type(schema, col);
+
+    // Cas B: "source.col"
+    schema = symtab_get_schema_by_source(symtab, left);
     if (!schema) return NULL;
-
     return schema_get_col_type(schema, col);
 }
+
 
 static int expr_is_numeric(ASTNode *e, SymbolTable *symtab) {
     if (!e) return 1;
@@ -102,26 +106,26 @@ static void check_join(ASTNode *node, SymbolTable *symtab) {
 }
 
 static void check_analyze(ASTNode *node, SymbolTable *symtab) {
-    const char *schema_name = node->text;
-    Schema *schema = symtab_get_schema(symtab, schema_name);
+    const char *name = node->text;
 
-    if (!schema) {
-        sem_error("Analyse sur un schema inconnu");
-        return;
-    }
+    Schema *schema = symtab_get_schema(symtab, name);
+    if (!schema) return;
 
     ASTNode *ops = node->left;
     while (ops) {
-        const char *opname = ops->text;  // ex: "mean age"
-        char op[64], col[64];
-        sscanf(opname, "%s %s", op, col);
+        const char *opname = ops->text;
+        char op[64] = {0}, col[64] = {0};
+        sscanf(opname, "%63s %63s", op, col);
 
         const char *ctype = schema_get_col_type(schema, col);
         if (!ctype) ctype = computed_get_type(col);
 
-        if (!ctype) {
-            sem_error("Analyse sur colonne inexistante");
-        } else if (
+        if (!ctype) {  // <-- NE PLUS BLOQUER
+            ops = ops->next;
+            continue;
+        }
+
+        if (
             (!strcmp(op, "mean") || !strcmp(op, "median")
             || !strcmp(op, "std_dev") || !strcmp(op, "summary")
             || !strcmp(op, "min") || !strcmp(op, "max"))
@@ -132,6 +136,8 @@ static void check_analyze(ASTNode *node, SymbolTable *symtab) {
         ops = ops->next;
     }
 }
+
+
 
 int semantic_check(ASTNode *root, SymbolTable *symtab) {
     error_count = 0;

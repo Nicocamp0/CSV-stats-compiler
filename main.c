@@ -258,7 +258,7 @@ int main(int argc, char **argv) {
     }
 
     /* Option debug utile */
-    /* ast_print(root, 0); */
+     /*ast_print(root, 0);*/
 
     /* Construire la table des symboles à partir de l’AST */
     build_symtab_from_ast(root, symtab);

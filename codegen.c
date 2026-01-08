@@ -56,12 +56,41 @@ static void add_computed_def(const char *name, ASTNode *expr) {
     g_computed_n++;
 }
 
+typedef struct {
+    char dataset[64];
+    char csv[256];      
+} DatasetCSV;
+
+static const char *ds_lookup(DatasetCSV m[], int n, const char *dataset) {
+    for (int i = 0; i < n; i++) {
+        if (strcmp(m[i].dataset, dataset) == 0) return m[i].csv;
+    }
+    return NULL;
+}
+
+static void ds_set(DatasetCSV m[], int *n, int maxn, const char *dataset, const char *csv) {
+    for (int i = 0; i < *n; i++) {
+        if (strcmp(m[i].dataset, dataset) == 0) {
+            strncpy(m[i].csv, csv, sizeof(m[i].csv));
+            m[i].csv[sizeof(m[i].csv)-1] = '\0';
+            return;
+        }
+    }
+    if (*n >= maxn) return;
+    strncpy(m[*n].dataset, dataset, sizeof(m[*n].dataset));
+    m[*n].dataset[sizeof(m[*n].dataset)-1] = '\0';
+    strncpy(m[*n].csv, csv, sizeof(m[*n].csv));
+    m[*n].csv[sizeof(m[*n].csv)-1] = '\0';
+    (*n)++;
+}
+
+
 
 /* -------------------------
    C helpers emitted in afstat.c
    ------------------------- */
 
-static void emit_helpers(FILE *out) {
+   static void emit_helpers(FILE *out) {
     fprintf(out,
         "#include <stdio.h>\n"
         "#include <stdlib.h>\n"
@@ -93,15 +122,31 @@ static void emit_helpers(FILE *out) {
         "  }\n"
         "  return -1;\n"
         "}\n\n"
-    );
-    fprintf(out,
+        "static int header_find_index(const char *header_line, const char *colname) {\n"
+        "  char tmp[MAX_LINE];\n"
+        "  strncpy(tmp, header_line, sizeof(tmp));\n"
+        "  tmp[sizeof(tmp)-1] = '\\0';\n"
+        "  int idx = 0;\n"
+        "  char *save = NULL;\n"
+        "  for (char *tok = strtok_r(tmp, \",\\r\\n\", &save); tok; tok = strtok_r(NULL, \",\\r\\n\", &save)) {\n"
+        "    if (strcmp(tok, colname) == 0) return idx;\n"
+        "    idx++;\n"
+        "  }\n"
+        "  return -1;\n"
+        "}\n\n"
+        "static int csv_split_line(char *line, char *cols[], int max_cols) {\n"
+        "  int n = 0;\n"
+        "  char *save = NULL;\n"
+        "  for (char *tok = strtok_r(line, \",\\r\\n\", &save); tok && n < max_cols; tok = strtok_r(NULL, \",\\r\\n\", &save)) {\n"
+        "    cols[n++] = tok;\n"
+        "  }\n"
+        "  return n;\n"
+        "}\n\n"
         "static int cmp_double(const void *a, const void *b) {\n"
         "  double da = *(const double*)a;\n"
         "  double db = *(const double*)b;\n"
         "  return (da > db) - (da < db);\n"
         "}\n\n"
-      );
-    fprintf(out,
         "typedef double (*ComputeFn)(const char *header, char *cols[], int n);\n"
         "typedef struct { const char *name; ComputeFn fn; } ComputeEntry;\n"
         "static ComputeEntry g_comp[128];\n"
@@ -113,8 +158,6 @@ static void emit_helpers(FILE *out) {
         "  for (int i=0;i<g_comp_n;i++) if (strcmp(g_comp[i].name,name)==0) return g_comp[i].fn;\n"
         "  return NULL;\n"
         "}\n"
-    );
-    fprintf(out,
         "static int get_value(const char *header, char *cols[], int n, const char *colname, double *outv) {\n"
         "  int idx = find_col_index(header, colname);\n"
         "  if (idx >= 0) {\n"
@@ -123,13 +166,12 @@ static void emit_helpers(FILE *out) {
         "  }\n"
         "  ComputeFn fn = find_comp(colname);\n"
         "  if (fn) { *outv = fn(header, cols, n); return 1; }\n"
-        "  return -1; // introuvable\n"
-        "}\n"
-      );
-      
-      
-      
+        "  return -1;\n"
+        "}\n\n"
+    );
 }
+
+
 
 static void emit_main_begin(FILE *out) {
     fprintf(out, "int main(void) {\n");
@@ -480,6 +522,141 @@ static void emit_real_median(FILE *out, const char *csv_file, const char *col) {
     );
 }
 
+static void emit_join_csv(FILE *out,
+    const char *out_csv,
+    const char *left_csv,
+    const char *right_csv,
+    const char *left_key_col,
+    const char *right_key_col)
+{
+    fprintf(out,
+    "  {\n"
+    "    // ---- JOIN (inner) ----\n"
+    "    FILE *fl = fopen(\"%s\", \"r\");\n"
+    "    FILE *fr = fopen(\"%s\", \"r\");\n"
+    "    FILE *fo = fopen(\"%s\", \"w\");\n"
+    "    if (!fl || !fr || !fo) { perror(\"fopen(join)\"); if(fl)fclose(fl); if(fr)fclose(fr); if(fo)fclose(fo); return 1; }\n"
+    "\n"
+    "    char hl[MAX_LINE], hr[MAX_LINE];\n"
+    "    if (!fgets(hl, sizeof(hl), fl)) { fclose(fl); fclose(fr); fclose(fo); return 1; }\n"
+    "    if (!fgets(hr, sizeof(hr), fr)) { fclose(fl); fclose(fr); fclose(fo); return 1; }\n"
+    "\n"
+    "    // header -> indices\n"
+    "    int lk = header_find_index(hl, \"%s\");\n"
+    "    int rk = header_find_index(hr, \"%s\");\n"
+    "    if (lk < 0 || rk < 0) {\n"
+    "      printf(\"join: key not found (left=%s right=%s)\\n\");\n"
+    "      fclose(fl); fclose(fr); fclose(fo); return 1;\n"
+    "    }\n"
+    "\n"
+    "    // write output header: left header + right header (simple)\n"
+    "    // remove trailing newline from left header\n"
+    "    { size_t L = strlen(hl); while (L>0 && (hl[L-1]=='\\n'||hl[L-1]=='\\r')) hl[--L]='\\0'; }\n"
+    "    { size_t L = strlen(hr); while (L>0 && (hr[L-1]=='\\n'||hr[L-1]=='\\r')) hr[--L]='\\0'; }\n"
+    "    fprintf(fo, \"%%s,%%s\\n\", hl, hr);\n"
+    "\n"
+    "    // Build a simple in-memory index for RIGHT file: key -> full line\n"
+    "    // (naive array; OK for small datasets)\n"
+    "    typedef struct { char key[128]; char line[MAX_LINE]; } Row;\n"
+    "    Row *rows = NULL;\n"
+    "    size_t cap = 0, nr = 0;\n"
+    "    char line[MAX_LINE];\n"
+    "    while (fgets(line, sizeof(line), fr)) {\n"
+    "      char tmp[MAX_LINE]; strncpy(tmp, line, sizeof(tmp)); tmp[sizeof(tmp)-1]='\\0';\n"
+    "      char *cols[MAX_COLS];\n"
+    "      int n = csv_split_line(tmp, cols, MAX_COLS);\n"
+    "      if (rk >= n) continue;\n"
+    "      const char *key = cols[rk];\n"
+    "      if (nr == cap) { cap = (cap==0?128:cap*2); rows = (Row*)realloc(rows, cap*sizeof(Row)); if(!rows){ fclose(fl); fclose(fr); fclose(fo); return 1; } }\n"
+    "      strncpy(rows[nr].key, key, sizeof(rows[nr].key)); rows[nr].key[sizeof(rows[nr].key)-1]='\\0';\n"
+    "      // store original line without newline\n"
+    "      { size_t L = strlen(line); while (L>0 && (line[L-1]=='\\n'||line[L-1]=='\\r')) line[--L]='\\0'; }\n"
+    "      strncpy(rows[nr].line, line, sizeof(rows[nr].line)); rows[nr].line[sizeof(rows[nr].line)-1]='\\0';\n"
+    "      nr++;\n"
+    "    }\n"
+    "\n"
+    "    // For each LEFT row, find matching RIGHT row(s) and write join\n"
+    "    while (fgets(line, sizeof(line), fl)) {\n"
+    "      char leftline[MAX_LINE];\n"
+    "      strncpy(leftline, line, sizeof(leftline)); leftline[sizeof(leftline)-1]='\\0';\n"
+    "      // key extraction\n"
+    "      char tmp[MAX_LINE]; strncpy(tmp, line, sizeof(tmp)); tmp[sizeof(tmp)-1]='\\0';\n"
+    "      char *cols[MAX_COLS];\n"
+    "      int n = csv_split_line(tmp, cols, MAX_COLS);\n"
+    "      if (lk >= n) continue;\n"
+    "      const char *key = cols[lk];\n"
+    "      // strip newline from leftline\n"
+    "      { size_t L = strlen(leftline); while (L>0 && (leftline[L-1]=='\\n'||leftline[L-1]=='\\r')) leftline[--L]='\\0'; }\n"
+    "\n"
+    "      for (size_t i = 0; i < nr; i++) {\n"
+    "        if (strcmp(rows[i].key, key) == 0) {\n"
+    "          fprintf(fo, \"%%s,%%s\\n\", leftline, rows[i].line);\n"
+    "        }\n"
+    "      }\n"
+    "    }\n"
+    "\n"
+    "    free(rows);\n"
+    "    fclose(fl); fclose(fr); fclose(fo);\n"
+    "  }\n",
+    left_csv, right_csv, out_csv,
+    left_key_col, right_key_col,
+    left_key_col, right_key_col
+    );
+}
+
+
+static void emit_filter_csv(FILE *out,
+    const char *out_csv,
+    const char *in_csv,
+    const char *qualified_col,
+    const char *op,           
+    const char *rhs_literal)   
+{
+    const char *dot = strrchr(qualified_col, '.');
+    const char *col = dot ? dot + 1 : qualified_col;
+
+    fprintf(out,
+        "  {\n"
+        "    // ---- FILTER ----\n"
+        "    FILE *fin = fopen(\"%s\", \"r\");\n"
+        "    if (!fin) { perror(\"fopen(filter in)\"); return 1; }\n"
+        "    FILE *fout = fopen(\"%s\", \"w\");\n"
+        "    if (!fout) { perror(\"fopen(filter out)\"); fclose(fin); return 1; }\n"
+        "    char header[MAX_LINE];\n"
+        "    if (!fgets(header, sizeof(header), fin)) { fclose(fin); fclose(fout); return 1; }\n"
+        "    fputs(header, fout);\n"
+        "    int idx = header_find_index(header, \"%s\");\n"
+        "    if (idx < 0) {\n"
+        "      fprintf(stderr, \"filter: column not found:\\n\");\n"
+        "      fclose(fin); fclose(fout); return 1;\n"
+        "    }\n"
+        "    char line[MAX_LINE];\n"
+        "    while (fgets(line, sizeof(line), fin)) {\n"
+        "      char tmp[MAX_LINE];\n"
+        "      strncpy(tmp, line, sizeof(tmp)); tmp[sizeof(tmp)-1] = '\\0';\n"
+        "      char *cols[MAX_COLS];\n"
+        "      int n = csv_split_line(tmp, cols, MAX_COLS);\n"
+        "      if (idx >= n) continue;\n"
+        "      const char *v = cols[idx];\n"
+        "      int keep = 0;\n"
+        "      double x = atof(v);\n"
+        "      double y = %s;\n"
+        "      if (strcmp(\"%s\", \">\") == 0) keep = (x > y);\n"
+        "      else if (strcmp(\"%s\", \"<\") == 0) keep = (x < y);\n"
+        "      else if (strcmp(\"%s\", \">=\") == 0) keep = (x >= y);\n"
+        "      else if (strcmp(\"%s\", \"<=\") == 0) keep = (x <= y);\n"
+        "      else if (strcmp(\"%s\", \"==\") == 0) keep = (x == y);\n"
+        "      else if (strcmp(\"%s\", \"!=\") == 0) keep = (x != y);\n"
+        "      if (keep) fputs(line, fout);\n"
+        "    }\n"
+        "    fclose(fin); fclose(fout);\n"
+        "  }\n",
+        in_csv, out_csv,
+        col,
+        rhs_literal,                    
+        op, op, op, op, op, op
+    );
+}
 
 
 /* Fallback placeholder */
@@ -488,25 +665,18 @@ static void emit_placeholder(FILE *out, const char *dataset, const char *optext)
     fprintf(out, "  printf(\"  (valeurs fictives / dataset non associé à un CSV)\\n\");\n");
 }
 
-/* -------------------------
-   Emit analyze block
-   ------------------------- */
 
 static void emit_analyze(FILE *out,
-                         ASTNode *an,
-                         SymbolTable *symtab,
-                         SourceFile sources[],
-                         int sources_n)
+                                    ASTNode *an,
+                                    SymbolTable *symtab,
+                                    SourceFile sources[],
+                                    int sources_n,
+                                    DatasetCSV dsmap[],
+                                    int dsmap_n)
+
 {
     const char *dataset = an->text;
-
-    // On ne calcule réel que si dataset est un schema avec une source associée
-    Schema *s = symtab_get_schema(symtab, dataset);
-    const char *csv_file = NULL;
-
-    if (s && s->source[0] != '\0') {
-        csv_file = lookup_file(sources, sources_n, s->source);
-    }
+    const char *csv_file = ds_lookup(dsmap, dsmap_n, dataset);
 
     fprintf(out, "  printf(\"[dataset: %s]\\n\");\n", dataset);
 
@@ -543,39 +713,90 @@ static void emit_analyze(FILE *out,
     }
 }
 
-static void emit_analyzes_recursive(FILE *out,
-    ASTNode *n,
+static void emit_pipeline(FILE *out,
+    ASTNode *root,
     SymbolTable *symtab,
-    SourceFile *sources,
+    SourceFile sources[],
     int sources_n)
 {
-    if (!n) return;
+    (void)symtab; (void)sources; (void)sources_n;
 
-    if (n->type == AST_ANALYZE) {
-    emit_analyze(out, n, symtab, sources, sources_n);
+    DatasetCSV dsmap[128];
+    int dsmap_n = 0;
+
+    for (ASTNode *st = root->left; st; st = st->next) {
+        if (st->type == AST_SOURCE) {
+            const char *name = st->text;
+            const char *fname = (st->left ? st->left->text : "");
+            ds_set(dsmap, &dsmap_n, 128, name, fname);
+        }
+
+        else if (st->type == AST_ASSOCIATE) {
+            const char *schema_name = st->text; 
+            const char *source_name = (st->left ? st->left->text : "");
+            const char *csv = ds_lookup(dsmap, dsmap_n, source_name);
+            if (!csv) {
+                fprintf(out, "  printf(\"associate: source not found: %s\\n\");\n", source_name);
+                continue;
+            }
+            ds_set(dsmap, &dsmap_n, 128, schema_name, csv);
+        }
+        
+        else if (st->type == AST_JOIN) {
+            const char *out_ds = st->text;
+        
+            const char *left_ref  = (st->left  ? st->left->text  : "");
+            const char *right_ref = (st->right ? st->right->text : ""); 
+        
+            char left_src[64] = {0}, left_col[64] = {0};
+            char right_src[64] = {0}, right_col[64] = {0};
+            sscanf(left_ref,  "%63[^.].%63s", left_src, left_col);
+            sscanf(right_ref, "%63[^.].%63s", right_src, right_col);
+        
+            const char *left_csv  = ds_lookup(dsmap, dsmap_n, left_src);
+            const char *right_csv = ds_lookup(dsmap, dsmap_n, right_src);
+        
+            if (!left_csv || !right_csv) {
+                fprintf(out, "  printf(\"join: missing input csv (%s or %s)\\n\");\n", left_src, right_src);
+                continue;
+            }
+        
+            char tmpcsv[256];
+            snprintf(tmpcsv, sizeof(tmpcsv), "__af_join_%s.csv", out_ds);
+        
+            emit_join_csv(out, tmpcsv, left_csv, right_csv, left_col, right_col);
+            ds_set(dsmap, &dsmap_n, 128, out_ds, tmpcsv);
+        }
+        
+        else if (st->type == AST_FILTER) {
+            const char *out_ds = st->text;
+        
+            // in dataset = st->left is AST_EXPRESSION with text = dataset name
+            const char *in_ds = (st->left && st->left->text) ? st->left->text : "";
+        
+            const char *in_csv = ds_lookup(dsmap, dsmap_n, in_ds);
+            if (!in_csv) {
+                fprintf(out, "  printf(\"filter: input dataset not found: %s\\n\");\n", in_ds);
+                continue;
+            }
+        
+            char tmpcsv[256];
+            snprintf(tmpcsv, sizeof(tmpcsv), "__af_filter_%s.csv", out_ds);
+        
+            ASTNode *cond = st->right; // AST_CONDITION
+            const char *op  = (cond && cond->text) ? cond->text : "==";
+            const char *lhs = (cond && cond->left && cond->left->text) ? cond->left->text : "";
+            const char *rhs = (cond && cond->right && cond->right->text) ? cond->right->text : "0";
+        
+            emit_filter_csv(out, tmpcsv, in_csv, lhs, op, rhs);
+            ds_set(dsmap, &dsmap_n, 128, out_ds, tmpcsv);
+        }
+        
+        else if (st->type == AST_ANALYZE) {
+            emit_analyze(out, st, symtab, sources, sources_n, dsmap, dsmap_n);
+        }
     }
-
-    emit_analyzes_recursive(out, n->left,  symtab, sources, sources_n);
-    emit_analyzes_recursive(out, n->right, symtab, sources, sources_n);
-    emit_analyzes_recursive(out, n->next,  symtab, sources, sources_n);
 }
-
-static int g_nodes = 0;
-static int g_analyzes = 0;
-static int g_sources = 0;
-
-static void scan_ast(ASTNode *n) {
-    if (!n) return;
-    g_nodes++;
-    if (n->type == AST_ANALYZE) g_analyzes++;
-    if (n->type == AST_SOURCE)  g_sources++;
-    scan_ast(n->left);
-    scan_ast(n->right);
-    scan_ast(n->next);
-}
-
-
-
 
 
 
@@ -585,12 +806,8 @@ static void scan_ast(ASTNode *n) {
 
 int generate_c(ASTNode *root, SymbolTable *symtab, const char *out_c_path)
 {
-    g_nodes = g_analyzes = g_sources = 0;
-    scan_ast(root);
     g_computed_n = 0;
     collect_computes(root);
-    fprintf(stderr, "[codegen] nodes=%d sources=%d analyzes=%d root_type=%d\n",g_nodes, g_sources, g_analyzes, root->type);
-
     if (!root || !symtab || !out_c_path) return 1;
 
     // Collecter sources -> fichiers depuis AST_SOURCE
@@ -607,7 +824,7 @@ int generate_c(ASTNode *root, SymbolTable *symtab, const char *out_c_path)
     emit_computed_functions(out);
     emit_main_begin(out);
     emit_register_computed(out);
-    emit_analyzes_recursive(out, root, symtab, sources, sources_n);
+    emit_pipeline(out, root, symtab, sources, sources_n);
     emit_main_end(out);
     fclose(out);
     return 0;
