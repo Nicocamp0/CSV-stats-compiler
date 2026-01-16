@@ -604,59 +604,127 @@ static void emit_join_csv(FILE *out,
     );
 }
 
+static int is_number_literal(const char *s) {
+    if (!s || !*s) return 0;
+    const char *p = s;
+    if (*p == '-') p++;
+    int seen_digit = 0;
+    int seen_dot = 0;
+    for (; *p; p++) {
+        if (*p >= '0' && *p <= '9') { seen_digit = 1; continue; }
+        if (*p == '.' && !seen_dot) { seen_dot = 1; continue; }
+        return 0;
+    }
+    return seen_digit;
+}
+
+// échappe " et \ pour générer un vrai littéral C "..."
+static void c_escape_string(const char *in, char *out, size_t out_sz) {
+    size_t j = 0;
+    for (size_t i = 0; in && in[i] && j + 2 < out_sz; i++) {
+        unsigned char c = (unsigned char)in[i];
+        if (c == '\\' || c == '"') { out[j++] = '\\'; out[j++] = (char)c; }
+        else if (c == '\n') { out[j++]='\\'; out[j++]='n'; }
+        else if (c == '\r') { out[j++]='\\'; out[j++]='r'; }
+        else if (c == '\t') { out[j++]='\\'; out[j++]='t'; }
+        else { out[j++] = (char)c; }
+    }
+    out[j] = '\0';
+}
+
 
 static void emit_filter_csv(FILE *out,
     const char *out_csv,
     const char *in_csv,
     const char *qualified_col,
-    const char *op,           
-    const char *rhs_literal)   
+    const char *op,
+    const char *rhs_literal)
 {
     const char *dot = strrchr(qualified_col, '.');
     const char *col = dot ? dot + 1 : qualified_col;
 
-    fprintf(out,
-        "  {\n"
-        "    // ---- FILTER ----\n"
-        "    FILE *fin = fopen(\"%s\", \"r\");\n"
-        "    if (!fin) { perror(\"fopen(filter in)\"); return 1; }\n"
-        "    FILE *fout = fopen(\"%s\", \"w\");\n"
-        "    if (!fout) { perror(\"fopen(filter out)\"); fclose(fin); return 1; }\n"
-        "    char header[MAX_LINE];\n"
-        "    if (!fgets(header, sizeof(header), fin)) { fclose(fin); fclose(fout); return 1; }\n"
-        "    fputs(header, fout);\n"
-        "    int idx = header_find_index(header, \"%s\");\n"
-        "    if (idx < 0) {\n"
-        "      fprintf(stderr, \"filter: column not found:\\n\");\n"
-        "      fclose(fin); fclose(fout); return 1;\n"
-        "    }\n"
-        "    char line[MAX_LINE];\n"
-        "    while (fgets(line, sizeof(line), fin)) {\n"
-        "      char tmp[MAX_LINE];\n"
-        "      strncpy(tmp, line, sizeof(tmp)); tmp[sizeof(tmp)-1] = '\\0';\n"
-        "      char *cols[MAX_COLS];\n"
-        "      int n = csv_split_line(tmp, cols, MAX_COLS);\n"
-        "      if (idx >= n) continue;\n"
-        "      const char *v = cols[idx];\n"
-        "      int keep = 0;\n"
-        "      double x = atof(v);\n"
-        "      double y = %s;\n"
-        "      if (strcmp(\"%s\", \">\") == 0) keep = (x > y);\n"
-        "      else if (strcmp(\"%s\", \"<\") == 0) keep = (x < y);\n"
-        "      else if (strcmp(\"%s\", \">=\") == 0) keep = (x >= y);\n"
-        "      else if (strcmp(\"%s\", \"<=\") == 0) keep = (x <= y);\n"
-        "      else if (strcmp(\"%s\", \"==\") == 0) keep = (x == y);\n"
-        "      else if (strcmp(\"%s\", \"!=\") == 0) keep = (x != y);\n"
-        "      if (keep) fputs(line, fout);\n"
-        "    }\n"
-        "    fclose(fin); fclose(fout);\n"
-        "  }\n",
-        in_csv, out_csv,
-        col,
-        rhs_literal,                    
-        op, op, op, op, op, op
-    );
+    int rhs_is_num = is_number_literal(rhs_literal);
+
+    char rhs_esc[512];
+    c_escape_string(rhs_literal ? rhs_literal : "", rhs_esc, sizeof(rhs_esc));
+
+    if (rhs_is_num) {
+        // -------- NUMERIQUE --------
+        fprintf(out,
+            "  {\n"
+            "    // ---- FILTER (numeric) ----\n"
+            "    FILE *fin = fopen(\"%s\", \"r\");\n"
+            "    if (!fin) { perror(\"fopen(filter in)\"); return 1; }\n"
+            "    FILE *fout = fopen(\"%s\", \"w\");\n"
+            "    if (!fout) { perror(\"fopen(filter out)\"); fclose(fin); return 1; }\n"
+            "    char header[MAX_LINE];\n"
+            "    if (!fgets(header, sizeof(header), fin)) { fclose(fin); fclose(fout); return 1; }\n"
+            "    fputs(header, fout);\n"
+            "    int idx = header_find_index(header, \"%s\");\n"
+            "    if (idx < 0) { fprintf(stderr, \"filter: column not found: %s\\n\"); fclose(fin); fclose(fout); return 1; }\n"
+            "    char line[MAX_LINE];\n"
+            "    while (fgets(line, sizeof(line), fin)) {\n"
+            "      char tmp[MAX_LINE];\n"
+            "      strncpy(tmp, line, sizeof(tmp)); tmp[sizeof(tmp)-1] = '\\0';\n"
+            "      char *cols[MAX_COLS];\n"
+            "      int n = csv_split_line(tmp, cols, MAX_COLS);\n"
+            "      if (idx >= n) continue;\n"
+            "      double x = atof(cols[idx]);\n"
+            "      double y = %s;\n"
+            "      int keep = 0;\n"
+            "      if (strcmp(\"%s\", \">\") == 0) keep = (x > y);\n"
+            "      else if (strcmp(\"%s\", \"<\") == 0) keep = (x < y);\n"
+            "      else if (strcmp(\"%s\", \">=\") == 0) keep = (x >= y);\n"
+            "      else if (strcmp(\"%s\", \"<=\") == 0) keep = (x <= y);\n"
+            "      else if (strcmp(\"%s\", \"==\") == 0) keep = (x == y);\n"
+            "      else if (strcmp(\"%s\", \"!=\") == 0) keep = (x != y);\n"
+            "      else { fprintf(stderr, \"filter: invalid numeric op: %s\\n\"); }\n"
+            "      if (keep) fputs(line, fout);\n"
+            "    }\n"
+            "    fclose(fin); fclose(fout);\n"
+            "  }\n",
+            in_csv, out_csv, col, col,
+            rhs_literal,
+            op, op, op, op, op, op, op
+        );
+    } else {
+        // -------- STRING --------
+        fprintf(out,
+            "  {\n"
+            "    // ---- FILTER (string) ----\n"
+            "    FILE *fin = fopen(\"%s\", \"r\");\n"
+            "    if (!fin) { perror(\"fopen(filter in)\"); return 1; }\n"
+            "    FILE *fout = fopen(\"%s\", \"w\");\n"
+            "    if (!fout) { perror(\"fopen(filter out)\"); fclose(fin); return 1; }\n"
+            "    char header[MAX_LINE];\n"
+            "    if (!fgets(header, sizeof(header), fin)) { fclose(fin); fclose(fout); return 1; }\n"
+            "    fputs(header, fout);\n"
+            "    int idx = header_find_index(header, \"%s\");\n"
+            "    if (idx < 0) { fprintf(stderr, \"filter: column not found: %s\\n\"); fclose(fin); fclose(fout); return 1; }\n"
+            "    const char *y = \"%s\";\n"
+            "    char line[MAX_LINE];\n"
+            "    while (fgets(line, sizeof(line), fin)) {\n"
+            "      char tmp[MAX_LINE];\n"
+            "      strncpy(tmp, line, sizeof(tmp)); tmp[sizeof(tmp)-1] = '\\0';\n"
+            "      char *cols[MAX_COLS];\n"
+            "      int n = csv_split_line(tmp, cols, MAX_COLS);\n"
+            "      if (idx >= n) continue;\n"
+            "      const char *x = cols[idx];\n"
+            "      int keep = 0;\n"
+            "      if (strcmp(\"%s\", \"==\") == 0) keep = (strcmp(x, y) == 0);\n"
+            "      else if (strcmp(\"%s\", \"!=\") == 0) keep = (strcmp(x, y) != 0);\n"
+            "      else { fprintf(stderr, \"filter: invalid string op: %s\\n\"); }\n"
+            "      if (keep) fputs(line, fout);\n"
+            "    }\n"
+            "    fclose(fin); fclose(fout);\n"
+            "  }\n",
+            in_csv, out_csv, col, col,
+            rhs_esc,
+            op, op, op
+        );
+    }
 }
+
 
 
 /* Fallback placeholder */
