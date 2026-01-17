@@ -28,6 +28,7 @@ static void print_version(void) {
     printf("Membres du projet:\n");
     printf("-Ventadoux Nicolas\n");
     printf("-Hajjar Line \n");
+    printf("-Akofa Carole DAPAH \n");
 }
 
 /* trim spaces inplace */
