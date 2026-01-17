@@ -7,6 +7,28 @@
 static int error_count = 0;
 static char g_current_dataset[64] = "";
 
+static int header_has_col(const char *header, const char *colname) {
+    // header = "a,b,c\n"
+    char tmp[4096];
+    strncpy(tmp, header, sizeof(tmp)-1);
+    tmp[sizeof(tmp)-1] = '\0';
+
+    char *save = NULL;
+    for (char *tok = strtok_r(tmp, ",\r\n", &save); tok; tok = strtok_r(NULL, ",\r\n", &save)) {
+        if (strcmp(tok, colname) == 0) return 1;
+    }
+    return 0;
+}
+
+static int read_csv_header(const char *file, char *out_header, size_t cap) {
+    FILE *f = fopen(file, "r");
+    if (!f) return 0;
+    if (!fgets(out_header, (int)cap, f)) { fclose(f); return 0; }
+    fclose(f);
+    return 1;
+}
+
+
 typedef struct {
     char name[64];
     char type[16];
@@ -98,20 +120,6 @@ static Schema *g_current_schema = NULL;
 static void sem_error(const char *msg) {
     fprintf(stderr, "[ERREUR SEMANTIQUE] %s\n", msg);
     error_count++;
-}
-
-static const char *get_column_type(const char *fullcol, SymbolTable *symtab) {
-    char left[128], col[128];
-    if (sscanf(fullcol, "%127[^.].%127s", left, col) != 2) return NULL;
-
-    // Cas A: "schema.col"
-    Schema *schema = symtab_get_schema(symtab, left);
-    if (schema) return schema_get_col_type(schema, col);
-
-    // Cas B: "source.col"
-    schema = symtab_get_schema_by_source(symtab, left);
-    if (!schema) return NULL;
-    return schema_get_col_type(schema, col);
 }
 
 
@@ -230,10 +238,6 @@ static void check_filter(ASTNode *node, SymbolTable *symtab) {
 
 static void check_analyze(ASTNode *node, SymbolTable *symtab) {
     const char *name = node->text;
-    printf("DEBUG analyze on %s: ds=%p has=%d sym=%p\n",name, (void*)g_ds, g_ds?g_ds->has_schema:0, (void*)symtab_get_schema(symtab,name));
- 
-
-    // 1) priorité: dataset (join/filter/associate)
     DatasetSchema *ds = ds_find(name);
     VSchema *vs = NULL;
     VSchema tmp;
@@ -241,7 +245,6 @@ static void check_analyze(ASTNode *node, SymbolTable *symtab) {
     if (ds && ds->has_schema) {
         vs = &ds->schema;
     } else {
-        // 2) sinon: schema déclaré
         Schema *schema = symtab_get_schema(symtab, name);
         if (!schema) {
             sem_error("analyze: identifiant inconnu (ni dataset ni schema)");
@@ -258,8 +261,6 @@ static void check_analyze(ASTNode *node, SymbolTable *symtab) {
 
         const char *ctype = vschema_get_type(vs, col);
         if (!ctype) ctype = computed_get_type(col);
-
-        // ✅ ici on rebloque vraiment
         if (!ctype) {
             sem_error("Analyse sur colonne inexistante");
             ops = ops->next;
@@ -274,7 +275,6 @@ static void check_analyze(ASTNode *node, SymbolTable *symtab) {
         {
             sem_error("Analyse numérique appliquée sur une colonne de type string");
         }
-
         ops = ops->next;
     }
 }
@@ -323,21 +323,33 @@ int semantic_check(ASTNode *root, SymbolTable *symtab) {
 
             case AST_ASSOCIATE: {
                 const char *schema_name = node->text;
-                const char *dataset = node->left ? node->left->text : NULL;
+                const char *source_name = node->left ? node->left->text : NULL;
+
                 Schema *s = symtab_get_schema(symtab, schema_name);
                 if (!s) { sem_error("associate sur un schema inconnu"); break; }
-                if (!dataset) { sem_error("associate: dataset manquant"); break; }                
-                DatasetSchema *e = ds_get_or_create(dataset);
-                if (!e) { sem_error("trop de datasets"); break; }
-                vschema_from_schema(&e->schema, s);
-                e->has_schema = 1;
-                
+                if (!source_name) { sem_error("associate: source manquante"); break; }
+                const char *csv = symtab_get_source_file(symtab, source_name);
+                if (!csv) { sem_error("associate: source non définie (pas de 'source ... \"file\"')"); break; }
+                char header[4096];
+                if (!read_csv_header(csv, header, sizeof(header))) {
+                    sem_error("associate: impossible d'ouvrir ou lire le header du CSV");
+                    break;
+                }
+                for (int i = 0; i < s->column_count; i++) {
+                    const char *col = s->columns[i].name;
+                    if (!header_has_col(header, col)) {
+                        sem_error("associate: colonne du schema absente dans le CSV");
+                    }
+                }
+                symtab_associate(symtab, schema_name, source_name);
+                DatasetSchema *e = ds_get_or_create(source_name);
+                if (e) {
+                    vschema_from_schema(&e->schema, s);
+                    e->has_schema = 1;
+                }
                 g_current_schema = s;
-                strncpy(g_current_dataset, dataset, sizeof(g_current_dataset)-1);
-                g_current_dataset[sizeof(g_current_dataset)-1] = '\0';
                 break;
             }
-                
             
             case AST_COMPUTE:
                 check_compute(node, symtab);

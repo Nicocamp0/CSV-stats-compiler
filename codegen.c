@@ -31,14 +31,6 @@ static int collect_sources(ASTNode *root, SourceFile out[], int max_out) {
     return k;
 }
 
-static const char *lookup_file(SourceFile sources[], int n, const char *source_name) {
-    for (int i = 0; i < n; i++) {
-        if (strcmp(sources[i].source_name, source_name) == 0) {
-            return sources[i].file_name;
-        }
-    }
-    return NULL;
-}
 
 typedef struct {
     char name[64];     // nom colonne calculée (ex: bmi)
@@ -736,9 +728,6 @@ static void emit_placeholder(FILE *out, const char *dataset, const char *optext)
 
 static void emit_analyze(FILE *out,
                                     ASTNode *an,
-                                    SymbolTable *symtab,
-                                    SourceFile sources[],
-                                    int sources_n,
                                     DatasetCSV dsmap[],
                                     int dsmap_n)
 
@@ -861,7 +850,7 @@ static void emit_pipeline(FILE *out,
         }
         
         else if (st->type == AST_ANALYZE) {
-            emit_analyze(out, st, symtab, sources, sources_n, dsmap, dsmap_n);
+            emit_analyze(out, st, dsmap, dsmap_n);
         }
     }
 }

@@ -65,16 +65,6 @@ static void walk(ASTNode *n, void (*fn)(ASTNode*, void*), void *ctx) {
     walk(n->next, fn, ctx);
 }
 
-/* ------------------ Symbol table population ------------------ */
-/*
-   Vu votre AST minimaliste, on “devine” via:
-   - AST_SCHEMA: n->text = schemaName ; n->left = liste de AST_FIELD
-   - AST_FIELD: soit n->text = "col:type", soit n->text="col" et n->left->text="type"
-   - AST_ASSOCIATE: plusieurs formats possibles, on essaie:
-        * n->text = "Schema=Source" ou "Schema Source" ou "Schema:Source"
-        * n->left->text et n->right->text si présents
-   - AST_JOIN / AST_FILTER: on crée au moins un schema vide pour le résultat (n->text = nom du nouveau dataset)
-*/
 
 typedef struct {
     SymbolTable *symtab;
@@ -82,9 +72,10 @@ typedef struct {
 
 static void handle_source(ASTNode *n, BuildCtx *ctx) {
     if (!n || !ctx || !ctx->symtab) return;
-    if (!n->text || n->text[0] == '\0') return;
-    symtab_add_source(ctx->symtab, n->text);
+    if (!n->text || !n->left || !n->left->text) return;
+    symtab_add_source(ctx->symtab, n->text, n->left->text);
 }
+
 
 
 static void handle_schema(ASTNode *n, BuildCtx *ctx) {
