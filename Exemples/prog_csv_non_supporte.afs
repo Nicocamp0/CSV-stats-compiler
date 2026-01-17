@@ -1,0 +1,13 @@
+source people "Exemples/csv_non_supporte.csv";
+
+schema people_schema {
+    id integer;
+    name string;
+    comment string;
+}
+associate people_schema with people;
+
+analyze people_schema {
+    histogram name;
+}
+
