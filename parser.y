@@ -156,8 +156,11 @@ expression:
     }
     | STRING_LITERAL
     {
-        $$ = ast_create(AST_EXPRESSION, $1, NULL, NULL);
+    char buf[512];
+    snprintf(buf, sizeof(buf), "\"%s\"", $1);
+    $$ = ast_create(AST_EXPRESSION, buf, NULL, NULL);
     }
+
     | IDENT
     {
         $$ = ast_create(AST_EXPRESSION, $1, NULL, NULL);

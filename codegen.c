@@ -159,7 +159,16 @@ static void ds_set(DatasetCSV m[], int *n, int maxn, const char *dataset, const 
         "  ComputeFn fn = find_comp(colname);\n"
         "  if (fn) { *outv = fn(header, cols, n); return 1; }\n"
         "  return -1;\n"
-        "}\n\n"
+        "}\n"
+        "static const char *get_str_value(const char *header, char *cols[], int n, const char *colname) {\n"
+        "int idx = find_col_index(header, colname);\n"
+        "if (idx >= 0) {\n"
+        "    if (idx < n) return cols[idx];\n"
+        "    return NULL;\n"
+        "}\n"
+        "return NULL;\n"
+        "}\n"
+        "\n\n"
     );
 }
 
@@ -188,33 +197,64 @@ static void parse_analyze_op(const char *text, char *op, size_t op_sz, char *col
 static void emit_expr_as_c(FILE *out, ASTNode *e) {
     if (!e) { fprintf(out, "0.0"); return; }
 
-    // feuilles: numbers / ident / string -> on supporte surtout number + ident
+    // feuille
     if (e->left == NULL && e->right == NULL) {
-        // Si c’est un opérateur stocké comme texte "+", etc, ça arrivera plutôt en non-feuille
-        // Ici on suppose: e->text contient soit un nombre soit un ident
-        // Heuristique simple: si ça commence par chiffre ou '-' -> nombre
         const char *t = e->text ? e->text : "0";
+
+        // string literal => erreur si utilisé en numérique
+        if (t[0] == '"') {
+            fprintf(out, "({ fprintf(stderr,\"string used as number\\n\"); exit(1); 0.0; })");
+            return;
+        }
+
+        // nombre
         if ((t[0] >= '0' && t[0] <= '9') || t[0] == '-' ) {
             fprintf(out, "%s", t);
-        } else {
-            // ident: on récupère via get_value(...)
-            // On génère: ({ double __tmp; int __r=get_value(header,cols,n,"age",&__tmp); if(__r<=0){return 0.0;} __tmp; })
-            fprintf(out,
-              "({ double __tmp=0.0; int __r=get_value(header, cols, n, \"%s\", &__tmp);"
-              " if(__r<=0){ return 0.0; } __tmp; })",
-              t
-            );
+            return;
         }
+
+        // ident colonne: déqualifier a.b -> b
+        const char *dot = strrchr(t, '.');
+        const char *u = dot ? dot + 1 : t;
+
+        fprintf(out,
+          "({ double __tmp=0.0; int __r=get_value(header, cols, n, \"%s\", &__tmp);"
+          " if(__r<=0){ fprintf(stderr,\"unknown numeric column: %s\\n\"); exit(1);} __tmp; })",
+          u, u
+        );
         return;
     }
 
-    // noeud opérateur: e->text = "+", "-", "*", "/"
+    // noeud opérateur
     fprintf(out, "(");
     emit_expr_as_c(out, e->left);
     fprintf(out, " %s ", e->text ? e->text : "+");
     emit_expr_as_c(out, e->right);
     fprintf(out, ")");
 }
+
+
+static void emit_expr_as_c_str(FILE *out, ASTNode *e) {
+    if (!e || !e->text) { fprintf(out, "NULL"); return; }
+
+    // string literal : on stocke avec guillemets dans l'AST => commence par "
+    if (e->text[0] == '"') {
+        fprintf(out, "%s", e->text);   // déjà une literal C
+        return;
+    }
+
+    // ident/colref : récupérer la colonne (déqualifiée)
+    const char *t = e->text;
+    const char *dot = strrchr(t, '.');
+    const char *u = dot ? dot + 1 : t;
+
+    fprintf(out,
+        "({ const char *__s = get_str_value(header, cols, n, \"%s\");"
+        " if(!__s){ fprintf(stderr,\"unknown string column: %s\\n\"); exit(1);} __s; })",
+        u, u
+    );
+}
+
 
 static void emit_computed_functions(FILE *out) {
     for (int i = 0; i < g_computed_n; i++) {
@@ -596,125 +636,70 @@ static void emit_join_csv(FILE *out,
     );
 }
 
-static int is_number_literal(const char *s) {
-    if (!s || !*s) return 0;
-    const char *p = s;
-    if (*p == '-') p++;
-    int seen_digit = 0;
-    int seen_dot = 0;
-    for (; *p; p++) {
-        if (*p >= '0' && *p <= '9') { seen_digit = 1; continue; }
-        if (*p == '.' && !seen_dot) { seen_dot = 1; continue; }
-        return 0;
-    }
-    return seen_digit;
-}
-
-// échappe " et \ pour générer un vrai littéral C "..."
-static void c_escape_string(const char *in, char *out, size_t out_sz) {
-    size_t j = 0;
-    for (size_t i = 0; in && in[i] && j + 2 < out_sz; i++) {
-        unsigned char c = (unsigned char)in[i];
-        if (c == '\\' || c == '"') { out[j++] = '\\'; out[j++] = (char)c; }
-        else if (c == '\n') { out[j++]='\\'; out[j++]='n'; }
-        else if (c == '\r') { out[j++]='\\'; out[j++]='r'; }
-        else if (c == '\t') { out[j++]='\\'; out[j++]='t'; }
-        else { out[j++] = (char)c; }
-    }
-    out[j] = '\0';
-}
-
 
 static void emit_filter_csv(FILE *out,
     const char *out_csv,
     const char *in_csv,
-    const char *qualified_col,
+    ASTNode *lhs_expr,
     const char *op,
-    const char *rhs_literal)
+    ASTNode *rhs_expr)
 {
-    const char *dot = strrchr(qualified_col, '.');
-    const char *col = dot ? dot + 1 : qualified_col;
+    fprintf(out,
+      "  {\n"
+      "    // ---- FILTER ----\n"
+      "    FILE *fin = fopen(\"%s\", \"r\");\n"
+      "    if (!fin) { perror(\"fopen(filter in)\"); return 1; }\n"
+      "    FILE *fout = fopen(\"%s\", \"w\");\n"
+      "    if (!fout) { perror(\"fopen(filter out)\"); fclose(fin); return 1; }\n"
+      "    char header[MAX_LINE];\n"
+      "    if (!fgets(header, sizeof(header), fin)) { fclose(fin); fclose(fout); return 1; }\n"
+      "    fputs(header, fout);\n"
+      "    char line[MAX_LINE];\n"
+      "    while (fgets(line, sizeof(line), fin)) {\n"
+      "      char tmp[MAX_LINE];\n"
+      "      strncpy(tmp, line, sizeof(tmp)); tmp[sizeof(tmp)-1] = '\\0';\n"
+      "      char *cols[MAX_COLS];\n"
+      "      int n = csv_split_line(tmp, cols, MAX_COLS);\n"
+      "      int keep = 0;\n"
+    , in_csv, out_csv);
 
-    int rhs_is_num = is_number_literal(rhs_literal);
+    // si op == ou != et au moins un côté string literal => string compare
+    int string_mode = (!strcmp(op,"==") || !strcmp(op,"!="))
+                      && ((lhs_expr && lhs_expr->text && lhs_expr->text[0]=='"') ||
+                          (rhs_expr && rhs_expr->text && rhs_expr->text[0]=='"'));
 
-    char rhs_esc[512];
-    c_escape_string(rhs_literal ? rhs_literal : "", rhs_esc, sizeof(rhs_esc));
-
-    if (rhs_is_num) {
-        // -------- NUMERIQUE --------
-        fprintf(out,
-            "  {\n"
-            "    // ---- FILTER (numeric) ----\n"
-            "    FILE *fin = fopen(\"%s\", \"r\");\n"
-            "    if (!fin) { perror(\"fopen(filter in)\"); return 1; }\n"
-            "    FILE *fout = fopen(\"%s\", \"w\");\n"
-            "    if (!fout) { perror(\"fopen(filter out)\"); fclose(fin); return 1; }\n"
-            "    char header[MAX_LINE];\n"
-            "    if (!fgets(header, sizeof(header), fin)) { fclose(fin); fclose(fout); return 1; }\n"
-            "    fputs(header, fout);\n"
-            "    int idx = header_find_index(header, \"%s\");\n"
-            "    if (idx < 0) { fprintf(stderr, \"filter: column not found: %s\\n\"); fclose(fin); fclose(fout); return 1; }\n"
-            "    char line[MAX_LINE];\n"
-            "    while (fgets(line, sizeof(line), fin)) {\n"
-            "      char tmp[MAX_LINE];\n"
-            "      strncpy(tmp, line, sizeof(tmp)); tmp[sizeof(tmp)-1] = '\\0';\n"
-            "      char *cols[MAX_COLS];\n"
-            "      int n = csv_split_line(tmp, cols, MAX_COLS);\n"
-            "      if (idx >= n) continue;\n"
-            "      double x = atof(cols[idx]);\n"
-            "      double y = %s;\n"
-            "      int keep = 0;\n"
-            "      if (strcmp(\"%s\", \">\") == 0) keep = (x > y);\n"
-            "      else if (strcmp(\"%s\", \"<\") == 0) keep = (x < y);\n"
-            "      else if (strcmp(\"%s\", \">=\") == 0) keep = (x >= y);\n"
-            "      else if (strcmp(\"%s\", \"<=\") == 0) keep = (x <= y);\n"
-            "      else if (strcmp(\"%s\", \"==\") == 0) keep = (x == y);\n"
-            "      else if (strcmp(\"%s\", \"!=\") == 0) keep = (x != y);\n"
-            "      else { fprintf(stderr, \"filter: invalid numeric op: %s\\n\"); }\n"
-            "      if (keep) fputs(line, fout);\n"
-            "    }\n"
-            "    fclose(fin); fclose(fout);\n"
-            "  }\n",
-            in_csv, out_csv, col, col,
-            rhs_literal,
-            op, op, op, op, op, op, op
-        );
+    if (string_mode) {
+        fprintf(out, "      const char *xs = ");
+        emit_expr_as_c_str(out, lhs_expr);
+        fprintf(out, ";\n      const char *ys = ");
+        emit_expr_as_c_str(out, rhs_expr);
+        fprintf(out, ";\n");
+        if (!strcmp(op,"=="))
+            fprintf(out, "      keep = (strcmp(xs, ys) == 0);\n");
+        else
+            fprintf(out, "      keep = (strcmp(xs, ys) != 0);\n");
     } else {
-        // -------- STRING --------
-        fprintf(out,
-            "  {\n"
-            "    // ---- FILTER (string) ----\n"
-            "    FILE *fin = fopen(\"%s\", \"r\");\n"
-            "    if (!fin) { perror(\"fopen(filter in)\"); return 1; }\n"
-            "    FILE *fout = fopen(\"%s\", \"w\");\n"
-            "    if (!fout) { perror(\"fopen(filter out)\"); fclose(fin); return 1; }\n"
-            "    char header[MAX_LINE];\n"
-            "    if (!fgets(header, sizeof(header), fin)) { fclose(fin); fclose(fout); return 1; }\n"
-            "    fputs(header, fout);\n"
-            "    int idx = header_find_index(header, \"%s\");\n"
-            "    if (idx < 0) { fprintf(stderr, \"filter: column not found: %s\\n\"); fclose(fin); fclose(fout); return 1; }\n"
-            "    const char *y = \"%s\";\n"
-            "    char line[MAX_LINE];\n"
-            "    while (fgets(line, sizeof(line), fin)) {\n"
-            "      char tmp[MAX_LINE];\n"
-            "      strncpy(tmp, line, sizeof(tmp)); tmp[sizeof(tmp)-1] = '\\0';\n"
-            "      char *cols[MAX_COLS];\n"
-            "      int n = csv_split_line(tmp, cols, MAX_COLS);\n"
-            "      if (idx >= n) continue;\n"
-            "      const char *x = cols[idx];\n"
-            "      int keep = 0;\n"
-            "      if (strcmp(\"%s\", \"==\") == 0) keep = (strcmp(x, y) == 0);\n"
-            "      else if (strcmp(\"%s\", \"!=\") == 0) keep = (strcmp(x, y) != 0);\n"
-            "      else { fprintf(stderr, \"filter: invalid string op: %s\\n\"); }\n"
-            "      if (keep) fputs(line, fout);\n"
-            "    }\n"
-            "    fclose(fin); fclose(fout);\n"
-            "  }\n",
-            in_csv, out_csv, col, col,
-            rhs_esc,
-            op, op, op
-        );
+        fprintf(out, "      double x = ");
+        emit_expr_as_c(out, lhs_expr);
+        fprintf(out, ";\n      double y = ");
+        emit_expr_as_c(out, rhs_expr);
+        fprintf(out, ";\n");
+
+        // comparaisons numériques
+        if (!strcmp(op,">"))  fprintf(out, "      keep = (x > y);\n");
+        else if (!strcmp(op,"<"))  fprintf(out, "      keep = (x < y);\n");
+        else if (!strcmp(op,">=")) fprintf(out, "      keep = (x >= y);\n");
+        else if (!strcmp(op,"<=")) fprintf(out, "      keep = (x <= y);\n");
+        else if (!strcmp(op,"==")) fprintf(out, "      keep = (x == y);\n");
+        else if (!strcmp(op,"!=")) fprintf(out, "      keep = (x != y);\n");
+        else fprintf(out, "      keep = 0;\n");
     }
+
+    fprintf(out,
+      "      if (keep) fputs(line, fout);\n"
+      "    }\n"
+      "    fclose(fin); fclose(fout);\n"
+      "  }\n");
 }
 
 
@@ -842,11 +827,12 @@ static void emit_pipeline(FILE *out,
         
             ASTNode *cond = st->right; // AST_CONDITION
             const char *op  = (cond && cond->text) ? cond->text : "==";
-            const char *lhs = (cond && cond->left && cond->left->text) ? cond->left->text : "";
-            const char *rhs = (cond && cond->right && cond->right->text) ? cond->right->text : "0";
-        
-            emit_filter_csv(out, tmpcsv, in_csv, lhs, op, rhs);
+            ASTNode *lhs_e  = cond ? cond->left : NULL;
+            ASTNode *rhs_e  = cond ? cond->right : NULL;
+
+            emit_filter_csv(out, tmpcsv, in_csv, lhs_e, op, rhs_e);
             ds_set(dsmap, &dsmap_n, 128, out_ds, tmpcsv);
+
         }
         
         else if (st->type == AST_ANALYZE) {

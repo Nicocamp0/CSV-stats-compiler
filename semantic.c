@@ -7,6 +7,11 @@
 static int error_count = 0;
 static char g_current_dataset[64] = "";
 
+/* Fonction qui vérifie si un nom de colonne existe dans une ligne d’en-tête CSV
+ * @param1 *header: Pointeur vers le l'entete d'un fichier csv 
+ * @param2 *colname: le nom associé au noeud (peut être NULL)
+ * @return: 1 si la colonne est trouvé; à sinon
+ */
 static int header_has_col(const char *header, const char *colname) {
     // header = "a,b,c\n"
     char tmp[4096];
@@ -14,12 +19,19 @@ static int header_has_col(const char *header, const char *colname) {
     tmp[sizeof(tmp)-1] = '\0';
 
     char *save = NULL;
+    //génère des tokens découpé par , ou retour a la ligne ou espace
     for (char *tok = strtok_r(tmp, ",\r\n", &save); tok; tok = strtok_r(NULL, ",\r\n", &save)) {
         if (strcmp(tok, colname) == 0) return 1;
     }
     return 0;
 }
 
+/* Fonction qui lit la première ligne d’un fichier CSV et la stocke dans out_header
+ * @param1 *file: Pointeur vers le l'entete d'un fichier csv 
+ * @param2 *out_header: le nom associé au noeud (peut être NULL)
+ * @param3 cap: La taille de la chaine de caractère à lire
+ * @return: 1 si elle a réussit à lire l'entete et la stoqué, 0 sinon
+ */
 static int read_csv_header(const char *file, char *out_header, size_t cap) {
     FILE *f = fopen(file, "r");
     if (!f) return 0;
@@ -28,7 +40,7 @@ static int read_csv_header(const char *file, char *out_header, size_t cap) {
     return 1;
 }
 
-
+// cette structue sera utilisé pour stoquer les informations du fichiers csv qui sont les colonne des schéma en afs
 typedef struct {
     char name[64];
     char type[16];
@@ -37,7 +49,7 @@ typedef struct {
 typedef struct {
     int n;
     VCol cols[256];
-} VSchema;
+} VSchema; //un schéma complet d’un ensemble de colonnes
 
 
 typedef struct {
@@ -45,9 +57,13 @@ typedef struct {
     char type[16];
 } ComputedCol;
 
-static ComputedCol g_comp[128];
-static int g_comp_n = 0;
+static ComputedCol g_comp[128]; //tableau globale de colonne pour l'operation compute
+static int g_comp_n = 0; // le nombre de colonne qui sera définit pour compute
 
+/* Fonction qui cherche une colonne par son nom dans table globale des schéma du fichier csv
+ * @param1 *name: Pointeur vers le nom de la colonne
+ * @return: le type de la colonne, NULL sinon
+ */
 static const char *computed_get_type(const char *name) {
     for (int i = 0; i < g_comp_n; i++) {
         if (strcmp(g_comp[i].name, name) == 0) return g_comp[i].type;
@@ -55,14 +71,19 @@ static const char *computed_get_type(const char *name) {
     return NULL;
 }
 
+/* Procédure qui ajoute une colonne avec son nom et son type dans le tableau globale et incrémente le nombre de colonne définit
+ * @param1 *name: Pointeur vers le l'entete d'un fichier csv 
+ * @param2 *type: le nom associé au noeud (peut être NULL)
+ */
 static void computed_add(const char *name, const char *type) {
-    if (g_comp_n >= 128) return;
+    if (g_comp_n >= 128) return; //Si le tableau est full on n'ajoute pas
     strncpy(g_comp[g_comp_n].name, name, sizeof(g_comp[g_comp_n].name)-1);
-    g_comp[g_comp_n].name[sizeof(g_comp[g_comp_n].name)-1] = '\0';
+    g_comp[g_comp_n].name[sizeof(g_comp[g_comp_n].name)-1] = '\0'; //Marquer l'arret de la chaine
     strncpy(g_comp[g_comp_n].type, type, sizeof(g_comp[g_comp_n].type)-1);
     g_comp[g_comp_n].type[sizeof(g_comp[g_comp_n].type)-1] = '\0';
     g_comp_n++;
 }
+
 
 typedef struct {
     char dataset[64];
@@ -70,15 +91,23 @@ typedef struct {
     int has_schema; // 0/1
 } DatasetSchema;
 
-static DatasetSchema g_ds[128];
+static DatasetSchema g_ds[128]; //tableau globale du dataset des schémas
 static int g_ds_n = 0;
 
+/* Fonction qui cherche si un dataset existe déjà dans g_ds à travers son nom
+ * @param1 *dataset: Le nom du dataset 
+ * @return le dataset si trouvé, 0 sinon
+ */
 static DatasetSchema* ds_find(const char *dataset) {
     for (int i=0;i<g_ds_n;i++)
         if (strcmp(g_ds[i].dataset, dataset)==0) return &g_ds[i];
     return NULL;
 }
 
+/* Fonction qui récupère un dataset s'il existe ou le crée vide sinon
+ * @param1 *DatasetSchema: Pointeur vers le nom de la colonne
+ * @return: Un pointeur vers un dataset existant ou nouveau
+ */
 static DatasetSchema* ds_get_or_create(const char *dataset) {
     DatasetSchema *e = ds_find(dataset);
     if (e) return e;
@@ -88,12 +117,21 @@ static DatasetSchema* ds_get_or_create(const char *dataset) {
     return &g_ds[g_ds_n++];
 }
 
+/* Fonction qui récupère un dataset ou le crée vide
+ * @param1 *name: Pointeur vers le nom de la colonne
+ * @return: Un dataset
+ */
 static const char* vschema_get_type(VSchema *s, const char *col) {
     for (int i=0;i<s->n;i++)
         if (strcmp(s->cols[i].name, col)==0) return s->cols[i].type;
     return NULL;
 }
 
+/* Procédure qui ajoute une colonne à un schéma avec son nom et type
+ * @param1 *s: Pointeur vers le schéma
+ * @param2 *name: Pointeur vers le nom de la colonne
+ * @param3 *s: Pointeur vers le type de la colonne
+ */
 static void vschema_add(VSchema *s, const char *name, const char *type) {
     if (s->n >= 256) return;
     if (vschema_get_type(s, name)) return;
@@ -104,6 +142,11 @@ static void vschema_add(VSchema *s, const char *name, const char *type) {
     s->n++;
 }
 
+/* Procédure qui rassemble les colonnes de deux schémas
+ * @param1 *a: Pointeur vers le schéma a
+ * @param1 *b: Pointeur vers le schéma a
+ * @return un schéma out combinant les deux 
+ */
 static VSchema vschema_merge(VSchema *a, VSchema *b) {
     VSchema out;
     memset(&out, 0, sizeof(out));
@@ -117,23 +160,28 @@ static VSchema vschema_merge(VSchema *a, VSchema *b) {
 
 static Schema *g_current_schema = NULL;
 
+//Affichage d'un message d'ereur pou identifier que c'est au niveau de lecture du fichier csv
 static void sem_error(const char *msg) {
     fprintf(stderr, "[ERREUR SEMANTIQUE] %s\n", msg);
     error_count++;
 }
 
-
+/* Fonction récursive qui dit s'il ya une valeur numérique dans l'arbre de noeuds dans le type et nom  
+ * @param1 *e: Pointeur vers un noeud d'arbre
+ * @param1 *b: la table des symboles
+ * @return 1 s'il existe une valeur numérique, 0 sinon
+ */
 static int expr_is_numeric(ASTNode *e, SymbolTable *symtab) {
-    if (!e) return 1;
+    if (!e) return 1; //arbe null
 
     if (!e->left && !e->right) {
         const char *t = e->text ? e->text : "";
 
-        if ((t[0] >= '0' && t[0] <= '9') || t[0] == '-' ) return 1;
-        if (!g_current_schema) return 0;
+        if ((t[0] >= '0' && t[0] <= '9') || t[0] == '-' ) return 1; //valeur numeric
+        if (!g_current_schema) return 0; //schema null
 
         const char *ctype = schema_get_col_type(g_current_schema, t);
-        if (!ctype) ctype = computed_get_type(t);
+        if (!ctype) ctype = computed_get_type(t); //type de schema dans la table globale de schema
 
         if (!ctype) return 0;
         if (strcmp(ctype, "string") == 0) return 0;
@@ -144,12 +192,16 @@ static int expr_is_numeric(ASTNode *e, SymbolTable *symtab) {
     return expr_is_numeric(e->left, symtab) && expr_is_numeric(e->right, symtab);
 }
 
+/* Procédure qui copie toutes les colonnes d’un schéma s vers un schéma out
+ * @param1 *out: Pointeur vers le schéma
+ * @param2 *s: Pointeur vers le nom de la colonne
+ */
 static void vschema_from_schema(VSchema *out, Schema *s) {
     out->n = 0;
     if (!s) return;
     for (int i = 0; i < s->column_count && out->n < 256; i++) {
         strncpy(out->cols[out->n].name, s->columns[i].name, sizeof(out->cols[out->n].name)-1);
-        out->cols[out->n].name[sizeof(out->cols[out->n].name)-1] = '\0';
+        out->cols[out->n].name[sizeof(out->cols[out->n].name)-1] = '\0'; //empêche les dépassements mémoire
 
         strncpy(out->cols[out->n].type, s->columns[i].type, sizeof(out->cols[out->n].type)-1);
         out->cols[out->n].type[sizeof(out->cols[out->n].type)-1] = '\0';
@@ -158,11 +210,14 @@ static void vschema_from_schema(VSchema *out, Schema *s) {
     }
 }
 
-
+/* Procédure qui vérifie le bon fonctionnement de compute selon des critères cité
+ * @param1 *node: Pointeur vers le schéma node
+ * @param2 *symtab: Pointeur vers la table des symbole
+ */
 static void check_compute(ASTNode *node, SymbolTable *symtab) {
     (void)symtab;
 
-    if (!g_current_schema) {
+    if (!g_current_schema) { //ne peut être utilisé que juste après la création d'un schema
         sem_error("compute utilisé sans schema associé juste avant");
         return;
     }
@@ -174,25 +229,35 @@ static void check_compute(ASTNode *node, SymbolTable *symtab) {
         sem_error("compute: expression invalide (colonne inconnue ou string dans un calcul)");
         return;
     }
-    computed_add(newcol, "float");
-    DatasetSchema *E = ds_find(g_current_dataset);
+    computed_add(newcol, "float"); //Ajouter colonne calculée dans la table globale
+    DatasetSchema *E = ds_find(g_current_dataset); // Mettre à jour le schéma du dataset
     if (E && E->has_schema) {
         vschema_add(&E->schema, newcol, "float");
     }
 
 }
 
+/* Séparer une chaine du type dataset.colonne en deux parties, out_ds le nom du dataset et 
+ out_col le nom de la colonne
+ * @param1 *q: Pointeur vers la chaine à séparer
+ * @param2 *out_ds: Pointeur vers le nom du dataset
+ * @param2 *out_col: Pointeur vers le nom de la colonne
+ */
 static void split_qual(const char *q, char *out_ds, char *out_col) {
-    out_ds[0]=out_col[0]='\0';
+    out_ds[0]=out_col[0]='\0';//initialiser à vide
     if (!q) return;
-    sscanf(q, "%63[^.].%63s", out_ds, out_col);
+    sscanf(q, "%63[^.].%63s", out_ds, out_col); // limite à 63 caractères pour éviter les débordements mémoire
 }
 
+/* Procédure qui vérifie que la condition de filter est sémantiquement correcte
+ * @param1 *node: Pointeur vers l'abre de noeuds
+ * @param2 *symtab: Pointeur vers la table de symbole
+ */
 static void check_filter(ASTNode *node, SymbolTable *symtab) {
     (void)symtab;
 
     if (!node->right || node->right->type != AST_CONDITION) {
-        sem_error("filter: condition invalide");
+        sem_error("filter: condition invalide"); 
         return;
     }
 
@@ -209,7 +274,7 @@ static void check_filter(ASTNode *node, SymbolTable *symtab) {
     char ds[64]={0}, col[64]={0};
     split_qual(lhs->text, ds, col);
 
-    DatasetSchema *E = ds_find(ds);
+    DatasetSchema *E = ds_find(ds); //On cherche le dataset dans le
     if (!E || !E->has_schema) {
         sem_error("filter: colonne sur dataset sans schema (manque associate/join avant)");
         return;
@@ -226,23 +291,26 @@ static void check_filter(ASTNode *node, SymbolTable *symtab) {
 
     if (!strcmp(t_lhs, "string")) {
         if (is_num_op) sem_error("filter: comparaison numérique sur colonne string");
-        // si string, on n'autorise que == / != (à toi selon l'énoncé)
+        // si string, on n'autorise que == / !=
         if (!is_eq_op) sem_error("filter: opérateur invalide sur string");
     } else {
-        // lhs numérique → interdire ==/!= avec string literal (si tu veux)
-        // (optionnel) vérifier rhs est bien numérique si littéral
+        // lhs numérique donc interdit ==/!= avec string literal
     }
 }
 
 
-
+/* Procédure qui vérifie que la condition de analyze est sémantiquement correcte, 
+c'est à dire que le schéma existe, n'est pas vide et qu;on applique une opérationde calcul dessus et pas un autre schéma
+ * @param1 *node: Pointeur vers l'abre de noeuds
+ * @param2 *symtab: Pointeur vers la table de symbole
+ */
 static void check_analyze(ASTNode *node, SymbolTable *symtab) {
     const char *name = node->text;
     DatasetSchema *ds = ds_find(name);
     VSchema *vs = NULL;
     VSchema tmp;
 
-    if (ds && ds->has_schema) {
+    if (ds && ds->has_schema) { // On extrait le nom du schéma du dataset
         vs = &ds->schema;
     } else {
         Schema *schema = symtab_get_schema(symtab, name);
@@ -250,7 +318,7 @@ static void check_analyze(ASTNode *node, SymbolTable *symtab) {
             sem_error("analyze: identifiant inconnu (ni dataset ni schema)");
             return;
         }
-        vschema_from_schema(&tmp, schema);
+        vschema_from_schema(&tmp, schema); // On crée ce schéma
         vs = &tmp;
     }
 
@@ -281,7 +349,12 @@ static void check_analyze(ASTNode *node, SymbolTable *symtab) {
 
 
 
-
+/* Fonction qui vérifie que la condition de analyze, filter, compute sont sémantiquement correcte sur tout 
+les schéma su lequel on fait des calcls dessus
+ * @param1 *root: Le premier noeud de l'arbre
+ * @param2 *symtab: La table de symbole
+ * @return: le nombre d'erreur sémantique
+ */
 int semantic_check(ASTNode *root, SymbolTable *symtab) {
     error_count = 0;
     g_comp_n = 0;

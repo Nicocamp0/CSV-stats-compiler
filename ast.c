@@ -13,12 +13,12 @@ ASTNode *ast_create(NodeType type, const char *text, ASTNode *left, ASTNode *rig
     return n;
 }
 
-ASTNode *ast_cons(ASTNode *list, ASTNode *node) {
-    if (!list) return node;
+ASTNode *ast_cons(ASTNode *list, ASTNode *rest) {
+    if (!list) return rest;
 
     ASTNode *cur = list;
     while (cur->next) cur = cur->next;
-    cur->next = node;
+    cur->next = rest;
     return list;
 }
 
