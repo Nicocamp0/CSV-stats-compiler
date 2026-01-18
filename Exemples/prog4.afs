@@ -1,11 +1,10 @@
 // Définition des sources de données
-source patients "data/patients.csv";
-source records "data/records.csv";
+source patients "Exemples/patients_medinfo.csv";
+source records "Exemples/records.csv";
 
 // Définition et association des schémas
 schema patients_schema {
     id integer;
-    name string;
 }
 associate patients_schema with patients;
 

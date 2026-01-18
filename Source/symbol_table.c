@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include "symbol_table.h"
 
+/* Fonction pour crée la table de symbole vide
+ * @return: une table de symbole
+ */
 SymbolTable* symtab_create() {
     SymbolTable *t = malloc(sizeof(SymbolTable));
     t->schema_count = 0;
@@ -13,6 +16,11 @@ SymbolTable* symtab_create() {
 
 // pr les sources:
 
+/* Fonction qui cherche l'indice de la source à partir de son nom 
+ * @param t: pointeur vers une table de symbole
+ * @param name: pointeur vers une chaine de caractère representant le nom de la source
+ * @return: Si le nom de la source est trouvé on renvoie l'indice, -1 sinon
+ */
 static int source_index(SymbolTable *t, const char *name) {
     for (int i = 0; i < t->source_count; i++) {
         if (strcmp(t->sources[i].name, name) == 0) return i;
@@ -49,29 +57,27 @@ const char *symtab_get_source_file(SymbolTable *t, const char *name) {
 }
 
 
-//et pour les schema: et vritual :
-
 void symtab_add_schema(SymbolTable *t, const char *schema, const char *source) {
     if (!t || !schema) return;
     if (t->schema_count >= (int)(sizeof(t->schemas)/sizeof(t->schemas[0]))) return;
 
     for (int i = 0; i < t->schema_count; i++) {
-        if (strcmp(t->schemas[i].name, schema) == 0) return;
+        if (strcmp(t->schemas[i].name, schema) == 0) return; // Ne rien faire si le schema existe
     }
 
-    Schema *s = &t->schemas[t->schema_count++];
-    memset(s, 0, sizeof(*s));
-    strncpy(s->name, schema, sizeof(s->name)-1);
+    Schema *s = &t->schemas[t->schema_count++]; 
+    memset(s, 0, sizeof(*s)); 
+    strncpy(s->name, schema, sizeof(s->name)-1); //Copie le nom du schéma dans s qui est le meme que t
     s->name[sizeof(s->name)-1] = '\0';
 
     if (source) {
-        strncpy(s->source, source, sizeof(s->source)-1);
+        strncpy(s->source, source, sizeof(s->source)-1); //copie nom de source de schema s'il existe
         s->source[sizeof(s->source)-1] = '\0';
     } else {
         s->source[0] = '\0';
     }
 
-    s->column_count = 0;
+    s->column_count = 0; //Il n'y a pas de colonne ajouté pour l'instant
 }
 
 void symtab_add_field(SymbolTable *t, const char *schema_name, const char *field, const char *type) {
@@ -80,22 +86,22 @@ void symtab_add_field(SymbolTable *t, const char *schema_name, const char *field
     Schema *s = NULL;
     for (int i = 0; i < t->schema_count; i++) {
         if (strcmp(t->schemas[i].name, schema_name) == 0) {
-            s = &t->schemas[i];
+            s = &t->schemas[i]; // on ajoutera une colonne a un schema avec un nom deja existant 
             break;
         }
     }
-    if (!s) return;
+    if (!s) return; //c pour ne pas ajouter une colonne a un schema vide
 
-    if (s->column_count >= (int)(sizeof(s->columns)/sizeof(s->columns[0]))) return;
+    if (s->column_count >= (int)(sizeof(s->columns)/sizeof(s->columns[0]))) return; //si full ne pas ajouter
 
     for (int i = 0; i < s->column_count; i++) {
         if (strcmp(s->columns[i].name, field) == 0) return;
     }
 
     Column *c = &s->columns[s->column_count++];
-    strncpy(c->name, field, sizeof(c->name)-1);
+    strncpy(c->name, field, sizeof(c->name)-1); //On copie le  nom a la colonne
     c->name[sizeof(c->name)-1] = '\0';
-    strncpy(c->type, type, sizeof(c->type)-1);
+    strncpy(c->type, type, sizeof(c->type)-1); //et un type
     c->type[sizeof(c->type)-1] = '\0';
 }
 
@@ -160,8 +166,8 @@ Schema *symtab_add_empty_schema(SymbolTable *t, const char *name) {
     memset(s, 0, sizeof(*s));
     strncpy(s->name, name, sizeof(s->name)-1);
     s->name[sizeof(s->name)-1] = '\0';
-    s->source[0] = '\0';
-    s->column_count = 0;
+    s->source[0] = '\0'; //source null
+    s->column_count = 0; //pas de colonne
     return s;
 }
 

@@ -3,7 +3,7 @@
 // sur leur âge et leur genre
 
 // Spécification du fichier d'entrée
-source patients "patients_medinfo.csv";
+source patients "Exemples/patients_medinfo.csv";
 
 // Définition de la structure des données
 schema patient_data {
@@ -20,7 +20,7 @@ analyze patient_data {
     histogram gender;
 }
 // Résultats attendus avec les fichiers donnés
-// mean age: 51.5
+// mean age: 51.9
 // histogram gender:
 // M: 15
 // F: 15

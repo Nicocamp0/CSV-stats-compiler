@@ -4,7 +4,7 @@
 // Fichier CSV : "id,nom,age,ville,poids,taille,imc"
 // L'utilisateur ne s'intéresse qu'à l'âge et à la taille.
 
-source med "medical_records_full.csv";
+source med "Exemples/medical_records_full.csv";
 
 schema data_subset {
     age integer;
@@ -18,6 +18,6 @@ analyze data_subset {
     std_dev height;
 }
 // Résultats attendus avec les fichiers donnés
-// mean age: 51.5
+// mean age: 51.9
 // std_dev height: 0.061
 

@@ -1,14 +1,14 @@
 // Ce programme sélectionne uniquement les patients dont l'âge 
 // est supérieur à 50 ans avant d'analyser leurs données
-source patients_data "data/patients.csv";
-source records_data "data/records.csv";
+source patients "Exemples/patients_medinfo.csv";
+source records_data "Exemples/records.csv";
 
 schema patient_schema {
     id integer;
     age integer;
     gender string;
 }
-associate patient_schema with patients_data;
+associate patient_schema with patients;
 
 schema record_schema {
     patient_id integer;
@@ -17,7 +17,7 @@ schema record_schema {
 associate record_schema with records_data;
 
 // Jointure des données
-join all_data = patients_data.id inner join records_data.patient_id;
+join all_data = patients.id inner join records_data.patient_id;
 
 // Filtrage pour ne conserver que les patients de plus de 50 ans
 filter old_patients = all_data where all_data.age > 50;
@@ -28,8 +28,8 @@ analyze old_patients {
     histogram gender;
 }
 // Résultats attendus avec les fichiers donnés
-// mean cholesterol: 236.4
+// mean cholesterol: 239.99
 // histogram gender:
-// M: 9
-// F: 9
+// M: 8
+// F: 8
 

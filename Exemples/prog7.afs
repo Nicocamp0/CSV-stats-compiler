@@ -1,5 +1,5 @@
 // Filtrage sur une chaîne de caractères
-source employees "data/employees.csv";
+source employees "Exemples/employees.csv";
 
 schema employee_schema {
     id integer;
@@ -20,6 +20,6 @@ analyze r_and_d_employees {
 // summary salary:
 // min: 65000
 // max: 75000
-// mean: 70000
-// std_dev: 3000
+// mean: 70066.67
+// std_dev: 2914.66
 
