@@ -22,6 +22,7 @@ static void usage(const char *prog) {
         "  -version      Affiche les membres du projet\n"
         "  -tokens       Affiche les tokens produits par l'analyse lexicale\n"
         "  -tos          Affiche la table des symboles\n"
+        "  -ast          Affiche l'AST\n"
         "  -o <file.c>   Fichier C genere (defaut: afstat.c)\n",
         prog
     );
@@ -206,6 +207,7 @@ int main(int argc, char **argv) {
     int opt_version = 0;
     int opt_tos = 0;
     int opt_tokens = 0;
+    int opt_ast = 0;
     const char *out_c = "afstat.c";
 
     /* Parse options */
@@ -213,6 +215,7 @@ int main(int argc, char **argv) {
         if (strcmp(argv[i], "-version") == 0) opt_version = 1;
         else if (strcmp(argv[i], "-tos") == 0) opt_tos = 1;
         else if (strcmp(argv[i], "-tokens") == 0) opt_tokens = 1;
+        else if (strcmp(argv[i], "-ast") == 0) opt_ast = 1;
         else if (strcmp(argv[i], "-o") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "Erreur: -o requiert un nom de fichier.\n");
@@ -251,10 +254,18 @@ int main(int argc, char **argv) {
     }
 
     /* Parse */
-    if (yyparse() != 0 || root == NULL) {
-        fprintf(stderr, "Parsing failed.\n");
-        return 1;
-    }
+ /* Parse */
+if (yyparse() != 0 || root == NULL) {
+    fprintf(stderr, "Parsing failed.\n");
+    return 1;
+}
+
+if (opt_ast) {
+    printf("=== AST ===\n");
+    ast_print(root, 0);
+}
+
+
 
     if (opt_tokens) {
         printf("\n----------------------------------------------------\n");
