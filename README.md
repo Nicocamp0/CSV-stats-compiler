@@ -31,13 +31,28 @@ Pour traduire un fichier `.afs` en code C (par exemple : `out.c`) :
 
 ### 2. Afficher la Table des Symboles
 
-Pour afficher les identifiants, les sources, les données associées ou les schémas détectés :
+Pour afficher les sources, et les schémas détectés :
 
 ```bash
 ./analyseur -tos < Exemples/fichier.afs
 ```
 
-### 3. Informations sur le projet
+### 3. Afficher les tokens extrait
+
+Pour afficher l'identification de chaque token détécté:
+
+```bash
+./analyseur -tokens < Exemples/fichier.afs
+```
+
+### 4. Afficher l'arbre de noeud extrait
+
+Les espacements sert à définir la profondeur et l'imbrication
+
+```bash
+./analyseur -ast < Exemples/fichier.afs
+```
+### 5. Informations sur le projet
 
 Pour afficher la version du compilateur et les membres de l’équipe :
 
