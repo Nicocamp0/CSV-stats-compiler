@@ -1,0 +1,22 @@
+# Build outputs
+*.o
+*.obj
+*.exe
+analyseur
+
+# Flex/Bison generated files
+lex.yy.c
+parser.tab.c
+parser.tab.h
+y.tab.c
+y.tab.h
+
+# Editor / OS files
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo
+
+# Office lock files
+.~lock.*
