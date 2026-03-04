@@ -1,77 +1,99 @@
-# AFStat - Compilateur pour le langage AFSTAT
+# AFSTAT Compiler
 
-##### Pour voir la desciption du projet, détaillant la structure et les fichier de ce projet, veuillez lire le rapport.
+Compiler for **AFSTAT**, a domain-specific language designed to perform statistical analysis on CSV datasets.
+
+The compiler parses AFSTAT programs and generates **C code** that performs the requested analyses.
+
 ---
 
-## I. Compilation du projet
+# Features
 
-Pour générer l'exécutable du compilateur (nommé **analyseur**), placez-vous dans le répertoire racine du projet et exécutez :
+- Lexical analysis using **Flex**
+- Syntax analysis using **Bison**
+- Semantic analysis
+- Symbol table construction
+- Abstract Syntax Tree (AST)
+- Code generation in C
+
+---
+
+# Project Structure
+
+```
+src/        implementation files
+include/    header files
+examples/   AFSTAT programs and CSV datasets
+tests/      additional test programs
+docs/       report and presentation
+```
+
+---
+
+# Build
+
+From the project root directory:
 
 ```bash
 make
 ```
 
-Cette commande :
-- compile tous les fichiers situés dans `Source/`,
-- inclut les headers de `Include/`,
-- génère les fichiers issus de **Flex** (analyseur lexical) et **Bison** (analyseur syntaxique).
+This generates the executable:
 
-
-## II. Utilisation du compilateur
-
-Une fois l'exécutable **analyseur** généré, vous pouvez traduire un fichier AFSTAT ou explorer les informations internes produites par le compilateur.
-
-### 1.  Générer le code C/C++
-
-Pour traduire un fichier `.afs` en code C (par exemple : `out.c`) :
-
-```bash
-./analyseur -o out.c < Exemples/fichier.afs
+```
+analyseur
 ```
 
-### 2. Afficher la Table des Symboles
+---
 
-Pour afficher les sources, et les schémas détectés :
+# Usage
 
-```bash
-./analyseur -tos < Exemples/fichier.afs
-```
-
-### 3. Afficher les tokens extrait
-
-Pour afficher l'identification de chaque token détécté:
+Generate C code from an AFSTAT program:
 
 ```bash
-./analyseur -tokens < Exemples/fichier.afs
+./analyseur -o out.c < examples/prog1.afs
 ```
 
-### 4. Afficher l'arbre de noeud extrait
-
-Les espacements sert à définir la profondeur et l'imbrication
+Display the symbol table:
 
 ```bash
-./analyseur -ast < Exemples/fichier.afs
+./analyseur -tos < examples/prog1.afs
 ```
-### 5. Informations sur le projet
 
-Pour afficher la version du compilateur et les membres de l’équipe :
+Display tokens extracted by the lexer:
+
+```bash
+./analyseur -tokens < examples/prog1.afs
+```
+
+Display the Abstract Syntax Tree:
+
+```bash
+./analyseur -ast < examples/prog1.afs
+```
+
+Display compiler information:
 
 ```bash
 ./analyseur -version
 ```
 
-## III. Nettoyage
+---
 
-Pour supprimer les fichiers compilés et l’exécutable :
+# Example
 
-```bash
-make clean
+Example AFSTAT program:
+
+```
+source med "examples/medical_records_full.csv";
 ```
 
----
-
-## 4. Auteurs
-
-Projet réalisé dans le cadre du module de compilation (M1).
+The compiler generates a C program that performs the requested statistical analysis.
 
 ---
+
+# Authors
+
+Project developed as part of a **Master's degree in Computer Science**.
+
+Nicolas Ventadoux  
+University of Strasbourg
